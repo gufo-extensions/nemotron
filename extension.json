@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "name": "nemotron",
+  "version": "0.1.0",
+  "api_version": ">= 0.2.16",
+  "depends": [],
+  "platforms": ["linux"],
+  "entry": "nemotron_register",
+  "registration_target": "gufo_nemotron",
+  "targets": {
+    "gufo_nemotron": { "requires": [] },
+    "gufo_nemotron_mmq": { "requires": ["hip"] },
+    "gufo_nemotron_hip": { "requires": ["hip"] },
+    "gufo_nemotron_text": { "requires": ["hip"] },
+    "nemotron_config_test": { "requires": ["testing"], "role": "test" },
+    "gufo_nemotron_reference": { "requires": ["testing"] },
+    "nemotron_probe_test": { "requires": ["testing"], "role": "test" },
+    "nemotron_nvfp4_test": { "requires": ["testing"], "role": "test" },
+    "nemotron_tokenizer_test": { "requires": ["testing"], "role": "test" },
+    "nemotron_chat_template_test": { "requires": ["testing"], "role": "test" },
+    "nemotron_reference_probe": { "requires": ["testing"], "role": "test" },
+    "nemotron_kernel_ops_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_gemv_ops_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_drafter_ops_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_mmq_ops_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_runtime_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_continuation_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_runtime_probe": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_drafter_probe": { "requires": ["hip", "testing"], "role": "test" }
+  },
+  "providers": [
+    {
+      "id": "nemotron35-bolt",
+      "capability": "text_generation",
+      "keys": ["gguf:nemotron_h_moe"],
+      "model_ids": ["nemotron-3.5-bolt"],
+      "speculative": ["dflash2"],
+      "target": "gufo_nemotron_text",
+      "entry": "nemotron_provider_register"
+    }
+  ],
+  "licenses": [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/llama.cpp.txt",
+    "licenses/ds4.txt",
+    "licenses/DS4-GB10.txt",
+    "licenses/lfm3-gufo-extension.txt"
+  ]
+}

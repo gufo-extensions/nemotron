@@ -1,0 +1,140 @@
+{
+  "artifactType": "model-bench-table",
+  "fingerprint": {
+    "canonical": {
+      "cppStandard": "C++20",
+      "cpuArchitecture": "x86_64",
+      "cpuLogicalCores": 32,
+      "cpuModel": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
+      "cpuPhysicalCores": 16,
+      "cxxCompiler": "GCC 15.3.0",
+      "gpuArchitecture": "gfx1151",
+      "gpuComputeUnits": 20,
+      "gpuDriver": "amdgpu",
+      "gpuName": "Radeon 8060S Graphics",
+      "gpuPciId": "1002:1586",
+      "kernelRelease": "7.0.0-42-generic",
+      "memoryTotalBytes": 131738566656,
+      "memoryType": "LPDDR5X (Unified)",
+      "rocmVersion": "10.1.0",
+      "schemaVersion": "1.0.0"
+    },
+    "fingerprintId": "be97b751d981f1cbdadd3a3d1b5c0e57b7b38275f8c949ff69ffdae012165387",
+    "schemaVersion": "1.0.0"
+  },
+  "measuredOn": "2026-11-09",
+  "mode": "dflash2",
+  "model": {
+    "id": "Nemotron 3.5 Bolt 74B-A9B",
+    "variant": null
+  },
+  "notes": [
+    "pp2048/tg128; depth is a cached conversation prefix of synthetic text (8-token reply); measured turn task is recorded per row; tolerance max(32, 0.500%) on cache_n and prompt_n; actual counts per sample in rows",
+    "synthetic text: 1.174 tokens/word, template overhead 16 tokens"
+  ],
+  "referenceName": "llama.cpp",
+  "rows": {
+    "0": {
+      "acceptance": 38.02,
+      "acceptance_sd": null,
+      "accepted_per_step": 2.56,
+      "accepted_per_step_sd": null,
+      "command": "gufo serve --port 56537 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 35456 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "counts": [
+        {
+          "cache_n": 0,
+          "completion_sha256": "82fd84fded8d257a194ac1eca43b70a866a79bac1e97e45d19f0292d6a7118bd",
+          "draft_n": 242,
+          "draft_n_accepted": 92,
+          "predicted_n": 128,
+          "prompt_n": 2030
+        }
+      ],
+      "pp": 999.28,
+      "pp_sd": null,
+      "samples": 1,
+      "tg": 53.48,
+      "tg_sd": null,
+      "workload": "repetition"
+    },
+    "32768": {
+      "acceptance": 34.09,
+      "acceptance_sd": null,
+      "accepted_per_step": 2.37,
+      "accepted_per_step_sd": null,
+      "command": "gufo serve --port 56537 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 35456 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "counts": [
+        {
+          "cache_n": 32776,
+          "completion_sha256": "fdbbc32db1d81039f3d4f9c01ed8bd7c49deffd8190f77f8563969eb2f5488cd",
+          "draft_n": 264,
+          "draft_n_accepted": 90,
+          "predicted_n": 128,
+          "prompt_n": 2023
+        }
+      ],
+      "pp": 806.67,
+      "pp_sd": null,
+      "samples": 1,
+      "tg": 47.95,
+      "tg_sd": null,
+      "workload": "repetition"
+    },
+    "8192": {
+      "acceptance": 36.55,
+      "acceptance_sd": null,
+      "accepted_per_step": 2.46,
+      "accepted_per_step_sd": null,
+      "command": "gufo serve --port 56537 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 35456 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "counts": [
+        {
+          "cache_n": 8188,
+          "completion_sha256": "ce05a886ab1f6d5ae1a683110f334d60a71bd63a85560ae0fb84559b53cd737b",
+          "draft_n": 249,
+          "draft_n_accepted": 91,
+          "predicted_n": 128,
+          "prompt_n": 2039
+        }
+      ],
+      "pp": 921.5,
+      "pp_sd": null,
+      "samples": 1,
+      "tg": 51.36,
+      "tg_sd": null,
+      "workload": "repetition"
+    }
+  },
+  "schemaVersion": 1,
+  "server": {
+    "command": [
+      "gufo",
+      "serve",
+      "--port",
+      "56537",
+      "--sessions",
+      "1",
+      "llm",
+      "--model",
+      "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf",
+      "--context",
+      "35456",
+      "--served-model-name",
+      "bench",
+      "--think",
+      "off",
+      "--max-pending-per-client",
+      "8",
+      "--speculative",
+      "dflash2",
+      "--dflash-model",
+      "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf"
+    ]
+  },
+  "source": {
+    "buildMode": "nix-release",
+    "dirty": true,
+    "revision": "5f9612c3b19ab6676b842095bc88bb9b32da5cf0"
+  },
+  "table": "single-lilicorr-repetition",
+  "target": "gufo"
+}

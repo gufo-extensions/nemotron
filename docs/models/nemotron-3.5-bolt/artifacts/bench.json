@@ -1,0 +1,130 @@
+{
+  "schema": "gufo-model-bench/1",
+  "category": "llm",
+  "model": {
+    "id": "Nemotron 3.5 Bolt 74B-A9B",
+    "docs": "nemotron-3.5-bolt",
+    "label": "Nemotron 3.5 Bolt 24GB"
+  },
+  "files": {
+    "gguf": "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf",
+    "draft": "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf (LiLiCorr DFlash drafter)"
+  },
+  "variants": {
+    "default": {
+      "label": "24GB",
+      "requires": [
+        "gguf"
+      ]
+    }
+  },
+  "sampling": {
+    "temperature": 0,
+    "seed": 1
+  },
+  "speculative": {
+    "mode": "dflash2",
+    "label": "LiLiCorr",
+    "gufo_args": [
+      "--speculative",
+      "dflash2",
+      "--dflash-model",
+      "{draft}"
+    ],
+    "reference": {
+      "args": [
+        "--spec-type",
+        "draft-dflash",
+        "--spec-draft-model",
+        "{draft}",
+        "--spec-draft-ngl",
+        "999",
+        "--spec-draft-n-max",
+        "7"
+      ]
+    }
+  },
+  "tables": {
+    "single-ar": {
+      "title": "Single user, autoregressive",
+      "per_variant": false,
+      "prompt_tokens": 2048,
+      "output_tokens": 128,
+      "depths": [
+        0,
+        8192,
+        32768
+      ],
+      "context": 35456,
+      "depth_tolerance": 0.005,
+      "prefix": {
+        "generator": "synthetic-paragraphs",
+        "seed": 1
+      },
+      "repetitions": 1,
+      "metric": "tok/s",
+      "better": "higher"
+    },
+    "single-lilicorr": {
+      "title": "Single user, LiLiCorr",
+      "per_variant": false,
+      "speculative": true,
+      "prompt_tokens": 2048,
+      "output_tokens": 128,
+      "depths": [
+        0,
+        8192,
+        32768
+      ],
+      "context": 35456,
+      "depth_tolerance": 0.005,
+      "prefix": {
+        "generator": "synthetic-paragraphs",
+        "seed": 1
+      },
+      "repetitions": 1,
+      "metric": "tok/s",
+      "better": "higher",
+      "workloads": {
+        "single-lilicorr": {
+          "label": "mixed",
+          "workload": "prose"
+        },
+        "single-lilicorr-repetition": {
+          "label": "repetitive",
+          "workload": "repetition"
+        }
+      }
+    }
+  },
+  "gufo": {
+    "serve": [],
+    "llm": [
+      "--think",
+      "off",
+      "--max-pending-per-client",
+      "8"
+    ],
+    "readiness": "/ready",
+    "checkpoint_preparation": true
+  },
+  "reference": {
+    "name": "llama.cpp",
+    "server": "llama-server",
+    "args": [
+      "-ngl",
+      "999",
+      "-fa",
+      "on",
+      "--cache-reuse",
+      "0",
+      "--jinja",
+      "--reasoning",
+      "off",
+      "--cache-ram",
+      "0"
+    ],
+    "endpoint_profile": "openai",
+    "readiness": "/health"
+  }
+}
