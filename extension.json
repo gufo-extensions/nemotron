@@ -43,8 +43,8 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "licenses/llama.cpp.txt",
+    "licenses/gufo.txt",
     "licenses/ds4.txt",
-    "licenses/DS4-GB10.txt",
     "licenses/lfm3-gufo-extension.txt"
   ]
 }

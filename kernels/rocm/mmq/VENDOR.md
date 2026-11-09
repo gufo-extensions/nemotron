@@ -3,10 +3,12 @@
 These model-private kernels derive from llama.cpp commit
 `5c0e9468378eba6bf3cc1989ff5d62fbbe4d9e3a` (MIT, The ggml authors),
 originally under `ggml/src/ggml-cuda/`. They were copied from the HIP
-adaptation in Gufo's `src/models/deepseek_v4_flash/kernels/rocm/mmq/`; that
-copy's lineage, including antirez/ds4 and xangel82/DS4-GB10-GX10-DSpark-CUDA
-`910501e` (both MIT), is listed in
-[THIRD_PARTY_NOTICES.md](../../../THIRD_PARTY_NOTICES.md).
+adaptation in Gufo's `src/models/deepseek_v4_flash/kernels/rocm/mmq/` (MIT),
+whose raw-pointer wrapper and ggml stub layer come from antirez/ds4 (MIT).
+That copy also carries the fused and paired MoE dispatch of
+xangel82/DS4-GB10-GX10-DSpark-CUDA `910501e`; none of it remains here (see
+the removed extras below). [THIRD_PARTY_NOTICES.md](../../../THIRD_PARTY_NOTICES.md)
+lists the licenses.
 
 The extension builds this directory with HIP for AMD `gfx1151`. Device headers use
 `.hip.hpp`; translation units use `.hip.cpp`. Symbols carry an `nb_` prefix

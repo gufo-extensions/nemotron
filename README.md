@@ -114,6 +114,6 @@ same comparison with llama.cpp; the prompts are in
 ## License
 
 MIT, see [LICENSE](LICENSE). The quantized matrix kernels are adapted from
-llama.cpp and DS4, the continuation adapter from the LFM3 extension, all MIT;
-see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+llama.cpp, DS4 and Gufo, the continuation adapter from the LFM3 extension,
+all MIT; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 Maintainer: [@mduka](https://github.com/mduka).
