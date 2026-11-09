@@ -104,11 +104,11 @@ same comparison with llama.cpp; the prompts are in
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
-| 0.1.0 (unreleased) | `5f9612c3` | 0.2.16 |
+| 0.1.0 | `5f9612c3` | 0.2.16 |
 
 ## Release history
 
-- 0.1.0 (unreleased): Nemotron 3.5 Bolt 74B-A9B with the ROCm runtime,
+- 0.1.0 (2026-11-09): Nemotron 3.5 Bolt 74B-A9B with the ROCm runtime,
   LiLiCorr drafting, batched decoding and continuation through Gufo's cache.
 
 ## License
