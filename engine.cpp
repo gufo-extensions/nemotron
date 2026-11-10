@@ -146,6 +146,14 @@ struct Session::State {
   std::vector<Buffer<float>> ssm_state;
   // Chunk scratch.
   Buffer<std::int32_t> tokens;
+  /// Rows of the current chunk that replace its token embeddings: chunk row,
+  /// count and source.
+  struct ChunkRows {
+    int row;
+    int count;
+    const float* data;
+  };
+  std::vector<ChunkRows> input_rows;
   Buffer<float> x, h, proj, xbc, y, out, q, k, v, ctx;
   /// Prefill inputs of the NVFP4 Mamba projections, as FP16.
   Buffer<__half> h16, y16;
@@ -448,6 +456,11 @@ public:
     const bool features = !st_.feature_slot.empty() && st_.inject_skip < n;
     Ok(rocm::EmbedQ8_0(m_.token_embd().data, st_.tokens.data, st_.x.data, n, H,
                        st_.stream));
+    for (const auto& r : st_.input_rows)
+      Ok(hipMemcpyAsync(st_.x.data + static_cast<std::size_t>(r.row) * H,
+                        r.data,
+                        static_cast<std::size_t>(r.count) * H * sizeof(float),
+                        hipMemcpyDeviceToDevice, st_.stream));
     for (std::size_t il = 0; ok_ && il < m_.layers().size(); ++il) {
       const rocm::DeviceLayer& l = m_.layers()[il];
       if (features && st_.feature_slot[il] >= 0)
@@ -821,7 +834,13 @@ private:
 
 bool Session::Append(std::span<const std::int32_t> tokens,
                      std::span<float> logits, std::string* error_msg) {
-  return AppendRows(tokens, logits, nullptr, {}, error_msg);
+  return AppendRows(tokens, logits, nullptr, {}, {}, error_msg);
+}
+
+bool Session::Append(std::span<const std::int32_t> tokens,
+                     std::span<float> logits, std::span<const InputRows> rows,
+                     std::string* error_msg) {
+  return AppendRows(tokens, logits, nullptr, {}, rows, error_msg);
 }
 
 bool Session::Append(std::span<const std::int32_t> tokens,
@@ -832,12 +851,14 @@ bool Session::Append(std::span<const std::int32_t> tokens,
       *error_msg = "a summarized append returns one logits row";
     return false;
   }
-  return AppendRows(tokens, logits, &filter, std::span(head, 1), error_msg);
+  return AppendRows(tokens, logits, &filter, std::span(head, 1), {}, error_msg);
 }
 
 bool Session::AppendRows(std::span<const std::int32_t> tokens,
                          std::span<float> logits, const LogitHeadFilter* filter,
-                         std::span<LogitHead> heads, std::string* error_msg) {
+                         std::span<LogitHead> heads,
+                         std::span<const InputRows> rows,
+                         std::string* error_msg) {
   auto fail = [&](std::string message) {
     if (error_msg != nullptr)
       *error_msg = std::move(message);
@@ -861,6 +882,11 @@ bool Session::AppendRows(std::span<const std::int32_t> tokens,
   }
   State& st = *state_;
   const rocm::DeviceModel& device = *model_->device_;
+  // Input rows apply to this append's chunks only.
+  struct ClearRows {
+    std::vector<State::ChunkRows>& rows;
+    ~ClearRows() { rows.clear(); }
+  } clear_rows{st.input_rows};
   // A draft anchored at the end of this append or later reads at most a
   // window (plus its own block) back; older rows skip the drafter.
   std::uint32_t keep_from = 0;
@@ -877,6 +903,16 @@ bool Session::AppendRows(std::span<const std::int32_t> tokens,
     const std::size_t n = std::min<std::size_t>(kChunk, tokens.size() - done);
     const bool last = done + n == tokens.size();
     const auto first = static_cast<std::int32_t>(position_);
+    st.input_rows.clear();
+    for (const InputRows& r : rows) {
+      const std::size_t from = std::max<std::size_t>(r.position, position_);
+      const std::size_t to = std::min<std::size_t>(
+          std::size_t{r.position} + r.count, std::size_t{position_} + n);
+      if (from < to)
+        st.input_rows.push_back({static_cast<int>(from - position_),
+                                 static_cast<int>(to - from),
+                                 r.data + (from - r.position) * c.hidden_size});
+    }
     if (hooks_ != nullptr)
       hooks_->BeforeWrite(position_, position_ + static_cast<std::uint32_t>(n));
     st.inject_skip = static_cast<int>(std::min<std::size_t>(
@@ -899,8 +935,8 @@ bool Session::AppendRows(std::span<const std::int32_t> tokens,
         !st.logits.Allocate(n * vocab))
       return fail("could not allocate the logits buffer");
     // One token with its head is the captured decode graph's case, which
-    // writes last_logits.
-    const bool graph = n == 1 && head_rows == 1;
+    // writes last_logits; it embeds tokens only.
+    const bool graph = n == 1 && head_rows == 1 && st.input_rows.empty();
     float* device_logits =
         all_positions && !graph ? st.logits.data : st.last_logits.data;
     std::string error;

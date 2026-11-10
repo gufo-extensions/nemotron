@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <gufo/ext/image.hpp>
 #include <gufo/ext/reasoning.hpp>
 #include <gufo/ext/sampling.hpp>
 #include <gufo/ext/text.hpp>
@@ -19,6 +20,8 @@
 #include "drafter.hpp"
 #include "engine.hpp"
 #include "speculative.hpp"
+#include "vision_encoder.hpp"
+#include "vision_prompt.hpp"
 
 namespace gufo::models::nemotron {
 namespace {
@@ -97,13 +100,60 @@ std::vector<std::int32_t> PromptTokens(const Model& model,
   return {ids.begin(), ids.end()};
 }
 
+/// The images of `--image` with NVIDIA's projector (`--mmproj`). They go
+/// at the start of the first user turn, as llama.cpp's mtmd-cli puts them,
+/// and are encoded once.
+struct Images {
+  std::shared_ptr<VisionEncoder> encoder;
+  ImageFraming framing;
+  std::vector<VisionInput> inputs;
+  std::vector<std::shared_ptr<const VisionEmbedding>> embeddings;
+};
+
+/// The chat prompt with each image expanded into its span, and the rows of
+/// those spans.
+std::vector<std::int32_t> ExpandPrompt(std::vector<std::int32_t> rendered,
+                                       Images& images, bool verbose,
+                                       std::vector<InputRows>* rows) {
+  rows->clear();
+  if (images.inputs.empty())
+    return rendered;
+  const std::vector<TokenId> ids(rendered.begin(), rendered.end());
+  const bool encode = images.embeddings.empty();
+  const auto prompt =
+      ExpandImages(images.encoder->config(), images.framing, ids, images.inputs,
+                   images.encoder->identity(), encode);
+  if (encode) {
+    const auto start = Clock::now();
+    std::size_t tokens = 0;
+    for (const auto& image : prompt.images) {
+      std::string error;
+      auto embedding =
+          images.encoder->Encode(*image.patches, image.grid, &error);
+      if (!embedding)
+        throw std::runtime_error(error);
+      images.embeddings.push_back(std::move(embedding));
+      tokens += image.rows;
+    }
+    if (verbose)
+      std::cerr << "[Vision]: " << prompt.images.size() << " images, " << tokens
+                << " tokens encoded in " << Seconds(start) << " s\n";
+  }
+  for (std::size_t i = 0; i < prompt.images.size(); ++i)
+    rows->push_back({prompt.images[i].offset, prompt.images[i].rows,
+                     images.embeddings[i]->data()});
+  return {prompt.tokens.begin(), prompt.tokens.end()};
+}
+
 /// Extends the session with `prompt` when it continues the executed tokens,
 /// otherwise restarts it, then samples until a stop token or max_tokens.
-/// With a drafter each round emits up to draft_tokens + 1 tokens.
+/// With a drafter each round emits up to draft_tokens + 1 tokens. `rows`
+/// replace the embeddings of image tokens.
 void Generate(const ext::TextPromptOptions& opt, const Model& model,
               Session& session, std::vector<std::int32_t>& executed,
               std::span<const std::int32_t> prompt,
-              std::string* reply = nullptr) {
+              std::string* reply = nullptr,
+              std::span<const InputRows> rows = {}) {
   const auto& tokenizer = model.tokenizer();
   if (prompt.empty())
     throw std::invalid_argument("the prompt produced no tokens");
@@ -124,7 +174,7 @@ void Generate(const ext::TextPromptOptions& opt, const Model& model,
   frontier.logits.resize(model.config().vocab_size);
   const auto prefill_start = Clock::now();
   const auto suffix = prompt.subspan(executed.size());
-  if (!session.Append(suffix, frontier.logits, &error))
+  if (!session.Append(suffix, frontier.logits, rows, &error))
     throw std::runtime_error("prefill failed: " + error);
   executed.assign(prompt.begin(), prompt.end());
   const double prefill_seconds = Seconds(prefill_start);
@@ -188,8 +238,11 @@ int RunPrompt(const ext::TextPromptOptions& opt, bool interactive,
   try {
     if (opt.force_cpu)
       throw std::invalid_argument("Nemotron 3.5 Bolt runs only on ROCm");
-    if (!opt.image_paths.empty() || !opt.vision_model_path.empty())
-      throw std::invalid_argument("Nemotron 3.5 Bolt takes no image input");
+    if (!opt.image_paths.empty() && opt.vision_model_path.empty())
+      throw std::invalid_argument(
+          "--image needs NVIDIA's vision projector: --mmproj MMPROJ.gguf");
+    if (!opt.image_paths.empty() && !opt.use_chat_template)
+      throw std::invalid_argument("--image needs chat framing, not --raw");
     if (interactive && !opt.use_chat_template)
       throw std::invalid_argument(
           "interactive chat needs chat framing; use prompt --raw for raw text");
@@ -199,17 +252,35 @@ int RunPrompt(const ext::TextPromptOptions& opt, bool interactive,
                       opt.dflash_model_path, kCliContext);
     std::cerr << "[ModelLoad]: " << Seconds(load) << " s\n";
     std::string error;
+    Images images;
+    if (!opt.vision_model_path.empty()) {
+      images.encoder = VisionEncoder::Load(opt.vision_model_path,
+                                           model->config(), {}, &error);
+      if (!images.encoder)
+        throw std::runtime_error(error);
+      images.framing = FindImageFraming(model->tokenizer());
+      for (const auto& path : opt.image_paths)
+        images.inputs.push_back(
+            {std::make_shared<const std::vector<std::uint8_t>>(
+                 core::ReadImageFile(path)),
+             false});
+    }
+    // The images open the first user turn.
+    const std::vector<std::size_t> image_offsets(images.inputs.size(), 0);
     auto session = model->CreateSession(kCliContext, &error);
     if (!session)
       throw std::runtime_error("session creation failed: " + error);
     std::vector<ChatMessage> history;
     if (!opt.system_prompt.empty())
-      history.push_back({ChatRole::kSystem, opt.system_prompt, {}, {}});
+      history.push_back({ChatRole::kSystem, opt.system_prompt, {}, {}, {}});
     std::vector<std::int32_t> executed;
+    std::vector<InputRows> rows;
     if (!interactive) {
-      history.push_back({ChatRole::kUser, opt.prompt_text, {}, {}});
-      Generate(opt, *model, *session, executed,
-               PromptTokens(*model, opt, history));
+      history.push_back(
+          {ChatRole::kUser, opt.prompt_text, {}, {}, image_offsets});
+      const auto prompt = ExpandPrompt(PromptTokens(*model, opt, history),
+                                       images, opt.verbose, &rows);
+      Generate(opt, *model, *session, executed, prompt, nullptr, rows);
       return 0;
     }
     const bool thinking = ResolveChatOptions(Reasoning(opt)).enable_thinking;
@@ -221,11 +292,20 @@ int RunPrompt(const ext::TextPromptOptions& opt, bool interactive,
         break;
       if (input.empty())
         continue;
-      history.push_back({ChatRole::kUser, input, {}, {}});
+      const bool first_turn = std::none_of(
+          history.begin(), history.end(),
+          [](const ChatMessage& m) { return m.role == ChatRole::kUser; });
+      history.push_back(
+          {ChatRole::kUser,
+           input,
+           {},
+           {},
+           first_turn ? image_offsets : std::vector<std::size_t>{}});
       std::cout << "<<< Assistant: ";
       std::string reply;
-      Generate(opt, *model, *session, executed,
-               PromptTokens(*model, opt, history), &reply);
+      const auto prompt = ExpandPrompt(PromptTokens(*model, opt, history),
+                                       images, opt.verbose, &rows);
+      Generate(opt, *model, *session, executed, prompt, &reply, rows);
       ChatMessage response;
       response.role = ChatRole::kAssistant;
       constexpr std::string_view end = "</think>";

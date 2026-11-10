@@ -1,6 +1,7 @@
 #ifndef GUFO_MODELS_NEMOTRON_CONFIG_HPP_
 #define GUFO_MODELS_NEMOTRON_CONFIG_HPP_
 
+#include <array>
 #include <cstdint>
 #include <gufo/ext/gguf_reader.hpp>
 #include <optional>
@@ -123,6 +124,49 @@ struct DrafterConfig {
   /// trunk it drafts for.
   [[nodiscard]] static std::optional<DrafterConfig> FromGguf(
       const core::GgufReader& reader, const Config& target,
+      std::string* error_msg = nullptr);
+};
+
+/// NVIDIA's vision projector for the trunk (`clip.projector_type =
+/// nemotron_omni`, the mmproj GGUF): a C-RADIO v4-H ViT over 16-pixel patches
+/// with prefix tokens and a cropped position table, whose features are merged
+/// 2x2 and projected to the trunk's width by an RMSNorm and a ReLU² MLP.
+struct VisionConfig {
+  std::uint32_t width{0};             ///< 1280
+  std::uint32_t num_layers{0};        ///< 32
+  std::uint32_t num_heads{0};         ///< 16
+  std::uint32_t ff_size{0};           ///< 5120, exact-GELU MLP
+  std::uint32_t patch_size{0};        ///< 16 pixels per side
+  std::uint32_t merge{0};             ///< 2: merge² patches form one token
+  std::uint32_t prefix_tokens{0};     ///< 10: 3 cls and 7 register tokens
+  std::uint32_t position_side{0};     ///< 128: the table is side x side
+  std::uint32_t projector_hidden{0};  ///< 20480
+  std::uint32_t projection{0};        ///< 4096, the trunk's width
+  std::uint32_t min_patches{0};       ///< 1024 per image
+  std::uint32_t max_patches{0};       ///< 13312 per image
+  float eps{1e-6F};                   ///< ViT LayerNorm
+  /// The projector's RMSNorm epsilon is not stored; NVIDIA's model and
+  /// llama.cpp use 1e-5.
+  float projector_eps{1e-5F};
+  /// Pixel normalization per RGB channel: (x / 255 - mean) / deviation.
+  std::array<float, 3> mean{};
+  std::array<float, 3> deviation{};
+
+  [[nodiscard]] std::uint32_t HeadDim() const noexcept {
+    return width / num_heads;
+  }
+  /// Values of one flattened patch: channel-major RGB rows.
+  [[nodiscard]] std::uint32_t PatchValues() const noexcept {
+    return 3 * patch_size * patch_size;
+  }
+  /// Width of a token after the merge, the projector's input.
+  [[nodiscard]] std::uint32_t MergedWidth() const noexcept {
+    return width * merge * merge;
+  }
+
+  /// Reads and validates the `clip.*` metadata and table shapes for `trunk`.
+  [[nodiscard]] static std::optional<VisionConfig> FromGguf(
+      const core::GgufReader& reader, const Config& trunk,
       std::string* error_msg = nullptr);
 };
 

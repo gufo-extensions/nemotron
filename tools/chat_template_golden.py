@@ -122,6 +122,36 @@ CASES = [
      "messages": [{"role": "user", "content": "Ünïcödé\tand  spaces  \n"},
                   {"role": "assistant", "content": "\n\nPartial answer"}],
      "options": {"add_generation_prompt": False}},
+    # Image parts; the C++ test places an image wherever a part sits.
+    {"name": "image_single",
+     "messages": [{"role": "user", "content": [
+         {"type": "image_url", "image_url": {"url": "data:"}},
+         {"type": "text", "text": "What is shown?"}]}],
+     "options": {}},
+    {"name": "images_labeled",
+     "messages": [{"role": "user", "content": [
+         {"type": "text", "text": "Compare "},
+         {"type": "image_url", "image_url": {"url": "data:"}},
+         {"type": "text", "text": " with "},
+         {"type": "image_url", "image_url": {"url": "data:"}},
+         {"type": "text", "text": "."}]}],
+     "options": {"enable_thinking": False}},
+    {"name": "image_history_and_tool",
+     "messages": [
+         {"role": "user", "content": [
+             {"type": "image_url", "image_url": {"url": "data:"}},
+             {"type": "text", "text": "Describe it."}]},
+         {"role": "assistant", "content": "A red square."},
+         {"role": "user", "content": "Take a screenshot."},
+         {"role": "assistant", "content": "", "tool_calls": [
+             {"type": "function", "function": {
+                 "name": "get_weather", "arguments": {"city": "Paris"}}}]},
+         {"role": "tool", "content": [
+             {"type": "text", "text": "Screen:"},
+             {"type": "image_url", "image_url": {"url": "data:"}},
+             {"type": "image_url", "image_url": {"url": "data:"}}]}],
+     "tools": [WEATHER],
+     "options": {}},
 ]
 
 

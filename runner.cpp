@@ -8,6 +8,7 @@
 #include <gufo/ext/gguf_identity.hpp>
 #include <gufo/ext/host_budget.hpp>
 #include <gufo/ext/json.hpp>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -19,6 +20,8 @@
 #include "drafter.hpp"
 #include "logit_head.hpp"
 #include "speculative.hpp"
+#include "vision_encoder.hpp"
+#include "vision_prompt.hpp"
 
 namespace gufo::models::nemotron {
 
@@ -52,6 +55,10 @@ public:
   /// text has been emitted yet: whitespace the model writes first is the
   /// separator after that block, framing rather than answer.
   bool leading_separator{false};
+  /// The current prompt's images, and the embeddings of those that prefill
+  /// has reached but not yet passed, by image index.
+  std::shared_ptr<const VisionPrompt> vision;
+  std::map<std::size_t, std::shared_ptr<const VisionEmbedding>> embeddings;
 
   void Invalidate() noexcept override {
     (void)adapter_->Invalidate(*slot_);
@@ -71,6 +78,16 @@ const State& Get(const TextRunnerState& state) {
   return dynamic_cast<const State&>(state);
 }
 
+/// The images of a prompt with images, travelling with its request.
+struct VisionContext final : TextPromptContext {
+  std::shared_ptr<const VisionPrompt> prompt;
+};
+
+bool HasImages(const ChatRequest& request) {
+  return std::ranges::any_of(request.messages,
+                             [](const auto& m) { return !m.images.empty(); });
+}
+
 constexpr std::string_view kStateAbi =
     "nemotron-h/state/v1;kv=f16;mamba=f32;chunk=2048";
 
@@ -78,8 +95,9 @@ class Runner final : public HipTextModelRunner {
 public:
   Runner(std::shared_ptr<Model> model, std::uint32_t context,
          std::uint32_t draft_tokens, std::string artifact_fingerprint,
-         std::string draft_fingerprint)
+         std::string draft_fingerprint, std::shared_ptr<VisionEncoder> vision)
       : model_(std::move(model)),
+        vision_(std::move(vision)),
         context_(context),
         draft_tokens_(
             model_->drafter() == nullptr
@@ -121,6 +139,14 @@ public:
     if (close.size() != 1)
       throw std::invalid_argument("Nemotron vocabulary has no </think> token");
     thought_close_ = close.front();
+    if (vision_) {
+      framing_ = FindImageFraming(model_->tokenizer());
+      // Embeddings depend on the projector and on the operand format.
+      vision_identity_ =
+          std::string(core::kGgufIdentityScheme) + ':' + vision_->identity() +
+          (vision_->operand() == rocm::VisionOperand::kF16 ? ";operand=fp16"
+                                                           : ";operand=bf16");
+    }
   }
 
   std::unique_ptr<ComponentCacheResources> CreateComponentCacheResources(
@@ -159,6 +185,7 @@ public:
         .max_context = context_,
         .capabilities =
             {
+                .supports_vision = vision_ != nullptr,
                 .incremental_prefill = true,
                 .final_token_advance_required = true,
                 .incremental_text_is_exact = true,
@@ -185,10 +212,12 @@ public:
     if (hipMemGetInfo(&free_bytes, &total_bytes) == hipSuccess)
       capacity = free_bytes;
     return {
-        .resident_weights_bytes = model_->ResidentBytes(),
+        .resident_weights_bytes =
+            model_->ResidentBytes() + (vision_ ? vision_->ResidentBytes() : 0),
         .state_capacity_bytes = capacity,
         .per_request_state_bytes = model_->SessionBytes(context_),
-        .temporary_scratch_bytes = std::nullopt,
+        .temporary_scratch_bytes =
+            vision_ ? std::optional(vision_->MaxScratchBytes()) : std::nullopt,
         .retained_snapshot_capacity_bytes = HostSnapshotBudgetBytes(),
         .retained_snapshot_ceiling_bytes = HostSnapshotCeilingBytes(),
         .requires_device_runtime_lock = true,
@@ -244,10 +273,15 @@ public:
   }
   std::optional<std::string> RenderPrompt(
       const ChatRequest& request) const override {
+    // Images expand into embedding rows, which no text spells.
+    if (HasImages(request))
+      return std::nullopt;
     return Render(request, nullptr);
   }
   std::optional<TextPreparedPrompt> PreparePrompt(
       const ChatRequest& request) const override {
+    if (HasImages(request))
+      return PrepareImagePrompt(request);
     auto prepared = TextModelRunner::PreparePrompt(request);
     if (!prepared)
       return prepared;
@@ -279,6 +313,29 @@ public:
     // an optional retry copy.
     prepared->cache_prefix_tokens = common == tokens.size() ? 0 : common;
     return prepared;
+  }
+  std::optional<std::size_t> CountPromptTokens(
+      const ChatRequest& request) const override {
+    if (!HasImages(request))
+      return TextModelRunner::CountPromptTokens(request);
+    // Sized as generation prepares it, without resizing the pixels.
+    return ExpandRequest(request, false).tokens.size();
+  }
+  void SetPromptContext(
+      TextRunnerState& state,
+      std::shared_ptr<const TextPromptContext> context) const override {
+    std::shared_ptr<const VisionPrompt> prompt;
+    if (context) {
+      const auto* images = dynamic_cast<const VisionContext*>(context.get());
+      if (images == nullptr)
+        throw std::invalid_argument("invalid Nemotron prompt context");
+      prompt = images->prompt;
+    }
+    auto& s = Get(state);
+    if (prompt != s.vision) {
+      s.vision = std::move(prompt);
+      s.embeddings.clear();
+    }
   }
   ext::InitialOutputState InitialOutputState(
       const ChatRequest& request) const override {
@@ -324,10 +381,37 @@ public:
         prompt.begin() + static_cast<std::ptrdiff_t>(offset + consumed));
     s.frontier.head.candidates.clear();
     std::string error;
-    if (!s.session->Append(tokens,
-                           decode_ready ? std::span<float>(s.frontier.logits)
-                                        : std::span<float>(),
-                           &error)) {
+    // The embeddings of the images this step reaches, encoded on first use.
+    // Attention is causal, so a step may end inside an image.
+    std::vector<InputRows> rows;
+    if (s.vision) {
+      for (std::size_t i = 0; i < s.vision->images.size(); ++i) {
+        const PromptImage& image = s.vision->images[i];
+        const std::size_t end = std::size_t{image.offset} + image.rows;
+        if (end <= offset || image.offset >= offset + consumed)
+          continue;
+        auto& embedding = s.embeddings[i];
+        if (!embedding) {
+          if (!vision_ || !image.patches)
+            throw std::logic_error("Nemotron image prompt without its pixels");
+          embedding = vision_->Encode(*image.patches, image.grid, &error);
+          if (!embedding)
+            throw std::runtime_error("Nemotron " + error);
+        }
+        rows.push_back({image.offset, image.rows, embedding->data()});
+      }
+    }
+    const bool appended = s.session->Append(
+        tokens,
+        decode_ready ? std::span<float>(s.frontier.logits) : std::span<float>(),
+        rows, &error);
+    // Images this step finished are not read again unless a restore returns
+    // before them, which encodes them anew.
+    std::erase_if(s.embeddings, [&](const auto& entry) {
+      const PromptImage& image = s.vision->images[entry.first];
+      return std::size_t{image.offset} + image.rows <= offset + consumed;
+    });
+    if (!appended) {
       s.logits_ready = false;
       throw std::runtime_error("Nemotron prefill failed: " + error);
     }
@@ -563,9 +647,11 @@ private:
     std::vector<nemotron::ChatMessage> messages;
     messages.reserve(request.messages.size());
     for (const auto& message : request.messages) {
-      if (!message.images.empty())
+      if (!message.images.empty() && !vision_)
         throw std::invalid_argument("model does not support image input");
       nemotron::ChatMessage converted;
+      for (const auto& image : message.images)
+        converted.image_offsets.push_back(image.offset);
       switch (message.role) {
         case ext::ChatRole::kSystem:
         case ext::ChatRole::kDeveloper:
@@ -603,7 +689,67 @@ private:
     return RenderChat(messages, tools, options, spans);
   }
 
+  /// The rendered prompt with each image placeholder expanded into its span.
+  VisionPrompt ExpandRequest(const ChatRequest& request,
+                             bool preprocess) const {
+    if (!vision_)
+      throw std::invalid_argument("model does not support image input");
+    std::vector<ContentSpan> spans;
+    const auto rendered =
+        TokenizeChat(model_->tokenizer(), Render(request, &spans), spans);
+    std::vector<VisionInput> images;
+    for (const auto& message : request.messages) {
+      for (const auto& image : message.images)
+        images.push_back(
+            {image.bytes, image.detail == ext::ChatMessage::ImageDetail::kLow});
+    }
+    return ExpandImages(vision_->config(), framing_, rendered, images,
+                        vision_identity_, preprocess);
+  }
+
+  std::optional<TextPreparedPrompt> PrepareImagePrompt(
+      const ChatRequest& request) const {
+    auto prompt =
+        std::make_shared<const VisionPrompt>(ExpandRequest(request, true));
+    // The stable boundary as for text prompts (PreparePrompt), found among
+    // the rendered tokens and moved past the images expanded before it.
+    const auto render = [&](const ChatRequest& r, bool generation_prompt) {
+      std::vector<ContentSpan> spans;
+      return TokenizeChat(model_->tokenizer(),
+                          Render(r, &spans, generation_prompt), spans);
+    };
+    const auto rendered = render(request, true);
+    const auto agree = [&](const std::vector<std::uint32_t>& other) {
+      return static_cast<std::size_t>(std::mismatch(rendered.begin(),
+                                                    rendered.end(),
+                                                    other.begin(), other.end())
+                                          .first -
+                                      rendered.begin());
+    };
+    auto continuation = request;
+    continuation.messages.emplace_back(ext::ChatRole::kAssistant, "");
+    continuation.messages.emplace_back(ext::ChatRole::kUser, "");
+    const std::size_t common = std::min(agree(render(request, false)),
+                                        agree(render(continuation, true)));
+    auto context = std::make_shared<VisionContext>();
+    context->cache_identity = prompt->cache_identity;
+    // A prefix ending at or before an image holds only the images before it.
+    for (std::size_t i = 0; i < prompt->images.size(); ++i)
+      context->cache_prefixes.push_back(
+          {prompt->images[i].offset, prompt->prefix_identities[i]});
+    context->prompt = prompt;
+    TextPreparedPrompt prepared;
+    prepared.tokens.assign(prompt->tokens.begin(), prompt->tokens.end());
+    prepared.context = std::move(context);
+    prepared.cache_prefix_tokens =
+        common == rendered.size() ? 0 : prompt->Expanded(common);
+    return prepared;
+  }
+
   std::shared_ptr<Model> model_;
+  std::shared_ptr<VisionEncoder> vision_;
+  ImageFraming framing_;
+  std::string vision_identity_;
   std::uint32_t context_;
   std::uint32_t draft_tokens_;
   /// "</think>", which ends the prompt when it closed reasoning itself.
@@ -630,10 +776,10 @@ std::string Fingerprint(const std::string& path, std::string* error) {
 std::shared_ptr<ext::TextModelRunner> CreateNemotronRunner(
     std::shared_ptr<Model> model, std::uint32_t context,
     std::uint32_t draft_tokens, std::string artifact_fingerprint,
-    std::string draft_fingerprint) {
-  return std::make_shared<Runner>(std::move(model), context, draft_tokens,
-                                  std::move(artifact_fingerprint),
-                                  std::move(draft_fingerprint));
+    std::string draft_fingerprint, std::shared_ptr<VisionEncoder> vision) {
+  return std::make_shared<Runner>(
+      std::move(model), context, draft_tokens, std::move(artifact_fingerprint),
+      std::move(draft_fingerprint), std::move(vision));
 }
 
 std::shared_ptr<ext::TextModelRunner> CreateNemotronTextRunner(
@@ -661,6 +807,15 @@ std::shared_ptr<ext::TextModelRunner> CreateNemotronTextRunner(
   if (backend == ext::TextSpeculativeBackend::kDFlash &&
       !model->LoadDrafter(options.speculative.draft_model_path, error))
     return nullptr;
+  // NVIDIA's vision projector, with its matrix-product algorithms chosen
+  // now rather than during the first images.
+  std::shared_ptr<VisionEncoder> vision;
+  if (!options.vision_model_path.empty()) {
+    vision = VisionEncoder::Load(options.vision_model_path, model->config(), {},
+                                 error);
+    if (!vision || !vision->Prepare(error))
+      return nullptr;
+  }
   std::string fingerprint;
   std::string draft_fingerprint;
   if (!options.disk_cache.directory.empty()) {
@@ -683,7 +838,8 @@ std::shared_ptr<ext::TextModelRunner> CreateNemotronTextRunner(
   try {
     return CreateNemotronRunner(
         std::move(model), context, options.speculative.max_draft_tokens,
-        std::move(fingerprint), std::move(draft_fingerprint));
+        std::move(fingerprint), std::move(draft_fingerprint),
+        std::move(vision));
   } catch (const std::exception& e) {
     return fail(e.what());
   }

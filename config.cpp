@@ -332,4 +332,104 @@ std::optional<DrafterConfig> DrafterConfig::FromGguf(
   return c;
 }
 
+std::optional<VisionConfig> VisionConfig::FromGguf(const core::GgufReader& gguf,
+                                                   const Config& trunk,
+                                                   std::string* error_msg) {
+  Reader r{gguf, error_msg};
+  if (gguf.GetMetadataString("general.architecture") != "clip" ||
+      gguf.GetMetadataString("clip.projector_type") != "nemotron_omni") {
+    r.Fail("GGUF is not a nemotron_omni vision projector");
+    return std::nullopt;
+  }
+  if (!r.Bool("clip.has_vision_encoder", false)) {
+    r.Fail("the projector has no vision encoder");
+    return std::nullopt;
+  }
+  VisionConfig c;
+  c.width = r.U32("clip.vision.embedding_length");
+  c.num_layers = r.U32("clip.vision.block_count");
+  c.num_heads = r.U32("clip.vision.attention.head_count");
+  c.ff_size = r.U32("clip.vision.feed_forward_length");
+  c.patch_size = r.U32("clip.vision.patch_size");
+  c.merge = r.U32("clip.vision.projector.scale_factor");
+  c.projection = r.U32("clip.vision.projection_dim");
+  c.eps = r.F32("clip.vision.attention.layer_norm_epsilon", 1e-6F);
+  const std::uint32_t min_pixels = r.U32("clip.vision.image_min_pixels");
+  const std::uint32_t max_pixels = r.U32("clip.vision.image_max_pixels");
+  if (!r.Bool("clip.use_gelu", false))
+    r.Fail("the vision MLP must use GELU");
+  const auto rgb = [&](std::string_view key) {
+    std::array<float, 3> out{};
+    const auto* meta = gguf.FindMetadata(key);
+    const auto* values = meta == nullptr
+                             ? nullptr
+                             : std::get_if<std::vector<double>>(&meta->value);
+    if (values == nullptr || values->size() != out.size()) {
+      r.Fail("missing or invalid GGUF array " + std::string(key));
+      return out;
+    }
+    for (std::size_t i = 0; i < out.size(); ++i) {
+      out[i] = static_cast<float>((*values)[i]);
+      if (!std::isfinite(out[i]))
+        r.Fail("invalid GGUF array " + std::string(key));
+    }
+    return out;
+  };
+  c.mean = rgb("clip.vision.image_mean");
+  c.deviation = rgb("clip.vision.image_std");
+  // Sizes the metadata does not state come from the tables' shapes.
+  const auto dimension = [&](std::string_view name) -> std::uint64_t {
+    const auto* tensor = gguf.FindTensor(name);
+    return tensor != nullptr && tensor->dimensions.size() == 2
+               ? tensor->dimensions[1]
+               : 0;
+  };
+  const std::uint64_t prefix = dimension("v.class_embd");
+  const std::uint64_t positions = dimension("v.position_embd.weight");
+  const std::uint64_t hidden = dimension("mm.model.mlp.1.weight");
+  if (!r.ok)
+    return std::nullopt;
+  auto side = static_cast<std::uint64_t>(
+      std::llround(std::sqrt(static_cast<double>(positions))));
+  const std::uint64_t patch_pixels =
+      static_cast<std::uint64_t>(c.patch_size) * c.patch_size;
+  const bool ok = c.num_heads != 0 && c.width % c.num_heads == 0 &&
+                  patch_pixels != 0 && c.merge != 0 &&
+                  side * side == positions && side <= UINT32_MAX &&
+                  prefix <= UINT32_MAX && hidden <= UINT32_MAX &&
+                  min_pixels % patch_pixels == 0 &&
+                  max_pixels % patch_pixels == 0 && min_pixels <= max_pixels &&
+                  min_pixels >= patch_pixels * c.merge * c.merge;
+  if (!ok) {
+    r.Fail("clip metadata describes an unsupported vision projector");
+    return std::nullopt;
+  }
+  c.prefix_tokens = static_cast<std::uint32_t>(prefix);
+  c.position_side = static_cast<std::uint32_t>(side);
+  c.projector_hidden = static_cast<std::uint32_t>(hidden);
+  c.min_patches = static_cast<std::uint32_t>(min_pixels / patch_pixels);
+  c.max_patches = static_cast<std::uint32_t>(max_pixels / patch_pixels);
+  for (const float d : c.deviation) {
+    if (!(d > 0.0F)) {
+      r.Fail("the vision projector's pixel deviation must be positive");
+      return std::nullopt;
+    }
+  }
+  if (c.projection != trunk.hidden_size) {
+    r.Fail("the vision projector's output width " +
+           std::to_string(c.projection) + " does not match the trunk's " +
+           std::to_string(trunk.hidden_size));
+    return std::nullopt;
+  }
+  // The kernels specialize on NVIDIA's projector for Nemotron 3.5.
+  if (c.width != 1280 || c.num_layers != 32 || c.num_heads != 16 ||
+      c.ff_size != 5120 || c.patch_size != 16 || c.merge != 2 ||
+      c.prefix_tokens != 10 || c.position_side != 128 ||
+      c.projector_hidden != 20480) {
+    r.Fail("unsupported vision projector geometry");
+    return std::nullopt;
+  }
+  return c;
+}
+
 }  // namespace gufo::models::nemotron

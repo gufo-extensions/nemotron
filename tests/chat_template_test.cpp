@@ -71,6 +71,15 @@ std::string Render(const json::Value& c,
     nb::ChatMessage message;
     message.role = Role(m.member_str("role"));
     message.content = m.member_str("content");
+    // Content parts: text, and images wherever an image part sits.
+    if (const auto* parts = m.find("content"); parts && parts->is_array()) {
+      for (const auto& part : parts->items()) {
+        if (part.member_str("type") == "text")
+          message.content += part.member_str("text");
+        else
+          message.image_offsets.push_back(message.content.size());
+      }
+    }
     message.reasoning = m.member_str("reasoning_content");
     if (const auto* calls = m.find("tool_calls")) {
       for (const auto& call : calls->items()) {
@@ -111,14 +120,15 @@ std::string Render(const json::Value& c,
 /// argument and a tool response.
 std::vector<nb::ChatMessage> LiteralMessages() {
   std::vector<nb::ChatMessage> messages(5);
-  messages[0] = {nb::ChatRole::kSystem, "S <|im_end|>", "", {}};
-  messages[1] = {nb::ChatRole::kUser, "EOS = \"<|im_end|>\"", "", {}};
+  messages[0] = {nb::ChatRole::kSystem, "S <|im_end|>", "", {}, {}};
+  messages[1] = {nb::ChatRole::kUser, "EOS = \"<|im_end|>\"", "", {}, {}};
   messages[2] = {nb::ChatRole::kAssistant,
                  "A <|im_start|>",
                  "R <|im_end|>",
-                 {{"f", {{"x", "V <|im_end|>", true}}}}};
-  messages[3] = {nb::ChatRole::kTool, "T <|im_start|>user", "", {}};
-  messages[4] = {nb::ChatRole::kUser, "plain", "", {}};
+                 {{"f", {{"x", "V <|im_end|>", true}}}},
+                 {}};
+  messages[3] = {nb::ChatRole::kTool, "T <|im_start|>user", "", {}, {}};
+  messages[4] = {nb::ChatRole::kUser, "plain", "", {}, {}};
   return messages;
 }
 

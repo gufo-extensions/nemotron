@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "nemotron",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "api_version": ">= 0.2.16",
   "depends": [],
   "platforms": ["linux"],
@@ -18,15 +18,19 @@
     "nemotron_nvfp4_test": { "requires": ["testing"], "role": "test" },
     "nemotron_tokenizer_test": { "requires": ["testing"], "role": "test" },
     "nemotron_chat_template_test": { "requires": ["testing"], "role": "test" },
+    "nemotron_vision_test": { "requires": ["testing"], "role": "test" },
     "nemotron_reference_probe": { "requires": ["testing"], "role": "test" },
     "nemotron_kernel_ops_test": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_gemv_ops_test": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_drafter_ops_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_vision_ops_test": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_mmq_ops_test": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_runtime_test": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_continuation_test": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_vision_encoder_test": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_runtime_probe": { "requires": ["hip", "testing"], "role": "test" },
-    "nemotron_drafter_probe": { "requires": ["hip", "testing"], "role": "test" }
+    "nemotron_drafter_probe": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_vision_probe": { "requires": ["hip", "testing"], "role": "test" }
   },
   "providers": [
     {
@@ -45,6 +49,8 @@
     "licenses/llama.cpp.txt",
     "licenses/gufo.txt",
     "licenses/ds4.txt",
-    "licenses/lfm3-gufo-extension.txt"
+    "licenses/lfm3-gufo-extension.txt",
+    "licenses/nemotron-omni.txt",
+    "licenses/pytorch.txt"
   ]
 }

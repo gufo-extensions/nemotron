@@ -143,6 +143,38 @@ struct DrafterWeights {
       std::string* error_msg = nullptr);
 };
 
+/// One ViT block: pre-norm attention and GELU MLP, each with a residual add.
+struct VisionLayerWeights {
+  TensorRef norm1, norm1_b;  ///< [width] LayerNorm affine
+  TensorRef q, q_b;          ///< [width -> width] BF16, F32 bias
+  TensorRef k, k_b;
+  TensorRef v, v_b;
+  TensorRef out, out_b;
+  TensorRef norm2, norm2_b;
+  TensorRef up, up_b;      ///< [width -> ff_size]
+  TensorRef down, down_b;  ///< [ff_size -> width]
+};
+
+/// The vision projector's tensors. Every value is a BF16 number; the tables
+/// and vectors are stored as F32.
+struct VisionWeights {
+  VisionConfig config;
+  /// [PatchValues -> width] patch projection without bias; a patch is laid
+  /// out channel-major, then by row and column.
+  TensorRef patch;
+  TensorRef position;  ///< [width] x side² rows, row-major over the grid
+  TensorRef prefix;    ///< [width] x prefix_tokens rows
+  std::vector<VisionLayerWeights> layers;
+  TensorRef projector_norm;  ///< [MergedWidth] RMSNorm gamma
+  TensorRef projector_up;    ///< [MergedWidth -> projector_hidden] BF16
+  TensorRef projector_down;  ///< [projector_hidden -> projection] BF16
+
+  /// Binds an mmproj GGUF for `trunk`. The tensors stay mapped.
+  [[nodiscard]] static std::optional<VisionWeights> Bind(
+      const core::GgufReader& reader, const Config& trunk,
+      std::string* error_msg = nullptr);
+};
+
 }  // namespace gufo::models::nemotron
 
 #endif  // GUFO_MODELS_NEMOTRON_WEIGHTS_HPP_

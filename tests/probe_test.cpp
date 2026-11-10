@@ -1,6 +1,6 @@
 // Probes NVIDIA's released files: the trunk is claimed, the drafter and the
 // vision projector are not, every tensor core can't size is NVFP4 and fits
-// its reserved bytes, and the trunk and drafter weights bind.
+// its reserved bytes, and the trunk, drafter and projector weights bind.
 //
 //   nemotron_probe_test [TRUNK.gguf]
 //
@@ -10,7 +10,10 @@
 
 #include "probe.hpp"
 
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <gufo/ext/gguf_reader.hpp>
 #include <iostream>
@@ -70,6 +73,8 @@ nemotron::Config CheckTrunk(const std::filesystem::path& path) {
   std::string error;
   auto weights = nemotron::ModelWeights::Bind(*reader, &error);
   Require(weights.has_value(), "trunk weights: " + error);
+  Require(!nemotron::VisionWeights::Bind(*reader, weights->config, &error),
+          "trunk bound as a vision projector");
   return weights->config;
 }
 
@@ -85,6 +90,40 @@ void CheckDrafter(const std::filesystem::path& path,
   std::string error;
   Require(nemotron::DrafterWeights::Bind(*reader, target, &error).has_value(),
           "drafter weights: " + error);
+}
+
+void CheckProjector(const std::filesystem::path& path,
+                    const nemotron::Config& trunk) {
+  std::error_code ec;
+  if (!std::filesystem::is_regular_file(path, ec)) {
+    std::cout << "absent, not checked: " << path.filename().string() << '\n';
+    return;
+  }
+  const auto reader = Open(path);
+  std::string error;
+  const auto weights = nemotron::VisionWeights::Bind(*reader, trunk, &error);
+  Require(weights.has_value(), "projector weights: " + error);
+  const auto& c = weights->config;
+  Require(c.HeadDim() == 80 && c.min_patches == 1024 &&
+              c.max_patches == 13312 && c.projection == trunk.hidden_size,
+          "unexpected projector geometry");
+  Require(std::abs(c.mean[0] - 0.48145466F) < 1e-7F &&
+              std::abs(c.deviation[2] - 0.27577711F) < 1e-7F,
+          "unexpected pixel statistics");
+  // The device keeps the F32 patch projection as BF16, exactly.
+  const auto* patch = static_cast<const std::uint8_t*>(weights->patch.data);
+  for (std::uint64_t i = 0; i < weights->patch.cols * weights->patch.rows;
+       ++i) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, patch + i * sizeof(float), sizeof(bits));
+    Require((bits & 0xFFFFU) == 0, "patch projection is not BF16-exact");
+  }
+  // The projector must match its trunk's width.
+  auto narrow = trunk;
+  narrow.hidden_size /= 2;
+  Require(!nemotron::VisionWeights::Bind(*reader, narrow, &error) &&
+              error.find("width") != std::string::npos,
+          "projector bound to a narrower trunk");
 }
 
 void CheckRejected(const std::filesystem::path& path) {
@@ -119,6 +158,7 @@ int main(int argc, char** argv) {
     const auto stem = trunk.stem().string();
     CheckDrafter(dir / (stem + "-LiLiCorr.gguf"), config);
     CheckRejected(dir / (stem + "-LiLiCorr.gguf"));
+    CheckProjector(dir / ("mmproj-" + trunk.filename().string()), config);
     CheckRejected(dir / ("mmproj-" + trunk.filename().string()));
     Require(!nemotron::ProbeBolt(dir.string()), "directory claimed");
   } catch (const std::exception& e) {

@@ -49,6 +49,15 @@ struct ModelOptions {
 class Session;
 struct BatchState;
 
+/// Input rows that replace token embeddings: `count` device rows of the
+/// trunk's width, float32, for the positions from `position` on (image
+/// embeddings at their placeholder tokens).
+struct InputRows {
+  std::uint32_t position{0};
+  std::uint32_t count{0};
+  const float* data{nullptr};
+};
+
 /// Host copy of a session at one position: K and V rows up to the position for
 /// each attention block, and the conv and SSM states of each Mamba block.
 struct SessionSnapshot {
@@ -125,6 +134,12 @@ public:
   /// with an empty span only the device keeps the last row (ReadLogits).
   [[nodiscard]] bool Append(std::span<const std::int32_t> tokens,
                             std::span<float> logits,
+                            std::string* error_msg = nullptr);
+  /// Append whose inputs at the positions of `rows` are those rows instead
+  /// of the tokens' embeddings. The rows must stay valid until it returns.
+  [[nodiscard]] bool Append(std::span<const std::int32_t> tokens,
+                            std::span<float> logits,
+                            std::span<const InputRows> rows,
                             std::string* error_msg = nullptr);
   /// Append returning one row, which the device also summarizes for
   /// SampleWithHead as `filter` requires: head->candidates stay empty when
@@ -214,7 +229,7 @@ private:
   bool RunDecodeGraph(std::string* error_msg);
   bool AppendRows(std::span<const std::int32_t> tokens, std::span<float> logits,
                   const LogitHeadFilter* filter, std::span<LogitHead> heads,
-                  std::string* error_msg);
+                  std::span<const InputRows> rows, std::string* error_msg);
   bool VerifyRows(std::span<const std::int32_t> tokens, std::span<float> logits,
                   const LogitHeadFilter* filter, std::span<LogitHead> heads,
                   std::string* error_msg);

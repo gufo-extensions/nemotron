@@ -42,3 +42,47 @@ without drafting.
 <!-- /bench -->
 
 ![Single user, LiLiCorr](artifacts/charts/single-lilicorr.svg)
+
+## Images
+
+Time to the first token of a prompt with one image: a unique system message
+(so no prompt cache serves it), the image and "Describe this image.",
+thinking off, one output token. The time covers decoding, preparing and
+encoding the image and prefilling the prompt. Median of three requests
+after a warm-up, single session, over HTTP
+([tools/bench/vision_bench.py](../../../tools/bench/vision_bench.py)).
+Extension 0.2.0 with NVIDIA's vision projector GGUF; llama.cpp
+serves the same files (`--mmproj`, every layer offloaded). The photo, logo and
+rendered screens come from
+[tools/bench/vision_images.sh](../../../tools/bench/vision_images.sh). Package
+power averaged 84 W (peaks 107 to 111 W), profile `performance`; measured
+November 9, 2026, under a machine reservation, both runs clean.
+
+| Image | Gufo prompt tokens | llama.cpp prompt tokens | Gufo (s) | llama.cpp (s) | Gain |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Photo, 512x512 | 306 | 310 | 0.630 | 1.416 | +125% |
+| Rendered settings page, 1024x1024 | 1,080 | 1,081 | 1.762 | 4.264 | +142% |
+| Rendered screen, 1920x1080 | 2,093 | 2,093 | 3.576 | 8.881 | +148% |
+| Rendered screen, 3840x2160 | 3,365 | 3,320 | 6.191 | 16.059 | +159% |
+
+Prompt lengths vary by a few tokens with the system message's random
+nonce. At 3840x2160 llama.cpp sizes the image to a different grid (76x43
+instead of 77x43 tokens); see [QUALITY.md](QUALITY.md#images-versus-llamacpp). Raw
+results: [Gufo](artifacts/images-gufo.json),
+[llama.cpp](artifacts/images-reference.json).
+
+The encoder alone (`nemotron_vision_probe`, median of five after a warm-up;
+package power 81 W, GPU at 2.17 GHz on average):
+
+| Image | Tokens | Decode | Prepare | Encode | Rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Photo, 512x512 | 256 | 1.1 ms | 1.3 ms | 77 ms | 20.6 TFLOPS |
+| Rendered settings page, 1024x1024 | 1,024 | 4.6 ms | 7.0 ms | 425 ms | 19.6 TFLOPS |
+| Rendered screen, 1920x1080 | 2,040 | 9.1 ms | 49 ms | 1,122 ms | 19.6 TFLOPS |
+| Rendered screen, 3840x2160 | 3,311 | 37 ms | 146 ms | 2,377 ms | 19.7 TFLOPS |
+
+Decoding and preparing (resize, normalization) run on the request's thread;
+encoding runs on the GPU when prefill reaches the image. At 1920x1080 the
+encoder is about a third of the time to the first token; half of the
+encoder's time is the ViT's attention over 8,170 tokens (about 20 TFLOPS),
+most of the rest its matrix products (about 25 TFLOPS).

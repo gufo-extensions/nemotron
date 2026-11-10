@@ -294,6 +294,27 @@ struct Rendered {
   }
 };
 
+/// A user, system or tool message's content: the template's render_content
+/// puts <image> where each image part sits and, when the message holds
+/// several, labels them "<image 1>", "<image 2>", ... Client text that spells
+/// <image> stays text (TokenizeChat), so the template's rule for prompts that
+/// place images by that spelling does not apply.
+void RenderContent(Rendered& out, const ChatMessage& m) {
+  const std::string_view content = m.content;
+  const std::size_t count = m.image_offsets.size();
+  std::size_t at = 0;
+  for (std::size_t k = 0; k < count; ++k) {
+    const std::size_t offset =
+        std::clamp(m.image_offsets[k], at, content.size());
+    out.Content(content.substr(at, offset - at));
+    if (count > 1)
+      out.Framing("<image " + std::to_string(k + 1) + ">");
+    out.Framing("<image>");
+    at = offset;
+  }
+  out.Content(content.substr(at));
+}
+
 void RenderAssistant(Rendered& out, const ChatMessage& m, bool truncate) {
   Rendered content;
   if (!PythonStrip(m.reasoning).empty()) {
@@ -458,7 +479,7 @@ std::string RenderChat(std::span<const ChatMessage> messages,
         out.Framing(kImStart);
         out.Framing(RoleName(m.role));
         out.Framing("\n");
-        out.Content(m.content);
+        RenderContent(out, m);
         if (m.role == ChatRole::kUser &&
             static_cast<std::ptrdiff_t>(i) == last_user &&
             options.medium_effort)
@@ -471,7 +492,7 @@ std::string RenderChat(std::span<const ChatMessage> messages,
           out.Framing("user\n");
         }
         out.Framing("<tool_response>\n");
-        out.Content(m.content);
+        RenderContent(out, m);
         out.Framing("\n</tool_response>\n");
         const bool last = i + 1 == loop.size();
         if (last || loop[i + 1].role != ChatRole::kTool)

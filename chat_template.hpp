@@ -32,6 +32,10 @@ struct ChatMessage {
   std::string content;
   std::string reasoning;  ///< Assistant reasoning_content.
   std::vector<ChatToolCall> tool_calls;
+  /// Byte offsets into `content` where images sit, ascending (user and tool
+  /// messages). Each renders as the template's <image>, labeled
+  /// "<image N>" when the message holds several.
+  std::vector<std::size_t> image_offsets;
 };
 
 struct ChatTool {
@@ -64,9 +68,9 @@ struct ContentSpan {
   std::size_t size{0};
 };
 
-/// Renders the artifact's chat template (n5h_5p5_nanov2) for text messages,
-/// with the client text's ranges in ascending order when `content_spans` is
-/// given. Throws std::invalid_argument for malformed tool schemas.
+/// Renders the artifact's chat template (n5h_5p5_nanov2), with the client
+/// text's ranges in ascending order when `content_spans` is given. Throws
+/// std::invalid_argument for malformed tool schemas.
 [[nodiscard]] std::string RenderChat(
     std::span<const ChatMessage> messages, std::span<const ChatTool> tools,
     const ChatOptions& options,

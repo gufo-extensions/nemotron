@@ -1,5 +1,6 @@
 #include "weights.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <initializer_list>
@@ -75,6 +76,36 @@ struct Binder {
            std::to_string(rows) + ", " + std::to_string(experts) + "]");
       return t;
     }
+    return Finish(info, name, cols, rows, experts, types);
+  }
+
+  /// A tensor of exactly `dims` whose leading dimensions flatten into the
+  /// contiguous reduction dimension and whose last one counts the rows.
+  TensorRef GetFlat(const std::string& name,
+                    std::initializer_list<std::uint64_t> dims,
+                    std::initializer_list<GgmlType> types) {
+    const auto* info = reader.FindTensor(name);
+    if (info == nullptr) {
+      Fail("missing tensor " + name);
+      return TensorRef{};
+    }
+    if (!std::equal(info->dimensions.begin(), info->dimensions.end(),
+                    dims.begin(), dims.end())) {
+      Fail("tensor " + name + " has an unexpected shape");
+      return TensorRef{};
+    }
+    std::uint64_t cols = 1;
+    for (auto it = dims.begin(); it + 1 != dims.end(); ++it)
+      cols *= *it;
+    return Finish(info, name, cols, *(dims.end() - 1), 1, types);
+  }
+
+  /// Checks the format and payload of a tensor of the given shape.
+  TensorRef Finish(const core::GgufTensorInfo* info, const std::string& name,
+                   std::uint64_t cols, std::uint64_t rows,
+                   std::uint64_t experts,
+                   std::initializer_list<GgmlType> types) {
+    TensorRef t;
     bool type_ok = false;
     for (auto type : types) {
       type_ok = type_ok || info->type == type;
@@ -335,6 +366,69 @@ std::optional<DrafterWeights> DrafterWeights::Bind(
       b.Get("lilicorr.anchor_out_head.bias", c.lc_factor, 1, 1, f32);
   if (!b.ok)
     return std::nullopt;
+  return w;
+}
+
+std::optional<VisionWeights> VisionWeights::Bind(const core::GgufReader& reader,
+                                                 const Config& trunk,
+                                                 std::string* error_msg) {
+  auto config = VisionConfig::FromGguf(reader, trunk, error_msg);
+  if (!config.has_value())
+    return std::nullopt;
+  Binder b{reader, error_msg};
+  VisionWeights w;
+  w.config = std::move(*config);
+  const VisionConfig& c = w.config;
+  const std::uint64_t width = c.width;
+  const std::uint64_t ff = c.ff_size;
+  const auto f32 = {GgmlType::kF32};
+  const auto bf16 = {GgmlType::kBF16};
+  w.patch = b.GetFlat("v.patch_embd.weight",
+                      {c.patch_size, c.patch_size, 3, width}, f32);
+  w.position = b.Get(
+      "v.position_embd.weight", width,
+      static_cast<std::uint64_t>(c.position_side) * c.position_side, 1, f32);
+  w.prefix = b.Get("v.class_embd", width, c.prefix_tokens, 1, f32);
+  w.layers.resize(c.num_layers);
+  for (std::uint32_t il = 0; il < c.num_layers && b.ok; ++il) {
+    const std::string p = "v.blk." + std::to_string(il) + ".";
+    VisionLayerWeights& l = w.layers[il];
+    l.norm1 = b.Get(p + "ln1.weight", width, 1, 1, f32);
+    l.norm1_b = b.Get(p + "ln1.bias", width, 1, 1, f32);
+    l.q = b.Get(p + "attn_q.weight", width, width, 1, bf16);
+    l.q_b = b.Get(p + "attn_q.bias", width, 1, 1, f32);
+    l.k = b.Get(p + "attn_k.weight", width, width, 1, bf16);
+    l.k_b = b.Get(p + "attn_k.bias", width, 1, 1, f32);
+    l.v = b.Get(p + "attn_v.weight", width, width, 1, bf16);
+    l.v_b = b.Get(p + "attn_v.bias", width, 1, 1, f32);
+    l.out = b.Get(p + "attn_out.weight", width, width, 1, bf16);
+    l.out_b = b.Get(p + "attn_out.bias", width, 1, 1, f32);
+    l.norm2 = b.Get(p + "ln2.weight", width, 1, 1, f32);
+    l.norm2_b = b.Get(p + "ln2.bias", width, 1, 1, f32);
+    l.up = b.Get(p + "ffn_up.weight", width, ff, 1, bf16);
+    l.up_b = b.Get(p + "ffn_up.bias", ff, 1, 1, f32);
+    l.down = b.Get(p + "ffn_down.weight", ff, width, 1, bf16);
+    l.down_b = b.Get(p + "ffn_down.bias", width, 1, 1, f32);
+  }
+  w.projector_norm = b.Get("mm.model.mlp.0.weight", c.MergedWidth(), 1, 1, f32);
+  w.projector_up = b.Get("mm.model.mlp.1.weight", c.MergedWidth(),
+                         c.projector_hidden, 1, bf16);
+  w.projector_down =
+      b.Get("mm.model.mlp.3.weight", c.projector_hidden, c.projection, 1, bf16);
+  if (!b.ok)
+    return std::nullopt;
+  // Tensors this runtime does not apply (layer scales, pre or post norms,
+  // patch bias) would change the result; the video patch projection is the
+  // only extra one allowed.
+  const std::size_t expected =
+      3 + 16 * static_cast<std::size_t>(c.num_layers) + 3;
+  std::size_t extra = 0;
+  for (const auto& tensor : reader.GetTensors())
+    extra += tensor.name == "v.patch_embd.weight.1" ? 1 : 0;
+  if (reader.GetTensorCount() != expected + extra) {
+    b.Fail("the vision projector has tensors this runtime does not apply");
+    return std::nullopt;
+  }
   return w;
 }
 

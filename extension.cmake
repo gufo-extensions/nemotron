@@ -10,6 +10,8 @@ gufo_extension_target(
     chat_template.cpp
     logit_head.cpp
     continuation_layout.cpp
+    vision_image.cpp
+    vision_prompt.cpp
     probe.cpp
     extension.cpp
   LINK_LIBRARIES
@@ -67,9 +69,11 @@ gufo_extension_target(
   NAME gufo_nemotron_hip
   SOURCES
     kernels/rocm/device_model.cpp
+    kernels/rocm/vision_gemm.cpp
     engine.cpp
     drafter.cpp
     speculative.cpp
+    vision_encoder.cpp
   LINK_LIBRARIES
     gufo_nemotron
     gufo_nemotron_mmq
@@ -78,6 +82,7 @@ gufo_extension_target(
     gufo_ext_hip
     hip::host
     roc::hipblas
+    roc::hipblaslt
 )
 if(TARGET gufo_nemotron_hip)
   gufo_extension_hip_sources(gufo_nemotron_hip
@@ -87,6 +92,7 @@ if(TARGET gufo_nemotron_hip)
       kernels/rocm/gemv.hip
       kernels/rocm/kernels.hip
       kernels/rocm/sample.hip
+      kernels/rocm/vision.hip
     OPTIONS
       -O3 -Wno-unused-command-line-argument
   )
@@ -232,6 +238,26 @@ if(TARGET nemotron_chat_template_test)
     SKIP_RETURN_CODE 77)
 endif()
 
+gufo_extension_target(
+  NAME nemotron_vision_test
+  SOURCES
+    tests/vision_test.cpp
+  LINK_LIBRARIES
+    gufo_nemotron
+    gufo_ext_runtime
+    ${_gufo_nemotron_test_libs}
+)
+if(TARGET nemotron_vision_test)
+  target_compile_definitions(nemotron_vision_test PRIVATE
+    GUFO_NEMOTRON_BOLT_VISION_GOLDEN="${_gufo_nemotron_fixtures}/vision_image_golden.json")
+  add_test(NAME nemotron.vision_image COMMAND nemotron_vision_test image)
+  set_tests_properties(nemotron.vision_image PROPERTIES
+    LABELS "nemotron;cpu;vision")
+  add_test(NAME nemotron.vision_prompt COMMAND nemotron_vision_test prompt)
+  set_tests_properties(nemotron.vision_prompt PROPERTIES
+    LABELS "nemotron;cpu;vision")
+endif()
+
 # Full-model CPU reference run, built only on request.
 gufo_extension_target(
   NAME nemotron_reference_probe
@@ -248,7 +274,7 @@ if(TARGET nemotron_reference_probe)
 endif()
 
 # GPU operator checks against CPU evaluations of the same formulas.
-foreach(_gufo_nemotron_op kernel_ops gemv_ops drafter_ops)
+foreach(_gufo_nemotron_op kernel_ops gemv_ops drafter_ops vision_ops)
   gufo_extension_target(
     NAME nemotron_${_gufo_nemotron_op}_test
     SOURCES
@@ -329,8 +355,31 @@ if(TARGET nemotron_continuation_test)
     TIMEOUT 600)
 endif()
 
-# Runtime and drafter probes for parity dumps and rates, built on request.
-foreach(_gufo_nemotron_probe runtime drafter)
+# The vision encoder on NVIDIA's projector against the reference model.
+gufo_extension_target(
+  NAME nemotron_vision_encoder_test
+  SOURCES
+    tests/vision_encoder_test.cpp
+  LINK_LIBRARIES
+    gufo_nemotron_hip
+    gufo_nemotron
+    gufo_ext_runtime
+    hip::host
+    ${_gufo_nemotron_test_libs}
+)
+if(TARGET nemotron_vision_encoder_test)
+  target_compile_definitions(nemotron_vision_encoder_test PRIVATE
+    GUFO_NEMOTRON_BOLT_VISION_ENCODER_GOLDEN="${_gufo_nemotron_fixtures}/vision_encoder_golden.json")
+  add_test(NAME nemotron.vision_encoder COMMAND nemotron_vision_encoder_test)
+  set_tests_properties(nemotron.vision_encoder PROPERTIES
+    LABELS "nemotron;hip;gpu;gfx1151;external-model;vision"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 600)
+endif()
+
+# Runtime, drafter and vision probes for parity dumps, rates and timings,
+# built on request.
+foreach(_gufo_nemotron_probe runtime drafter vision)
   gufo_extension_target(
     NAME nemotron_${_gufo_nemotron_probe}_probe
     SOURCES
