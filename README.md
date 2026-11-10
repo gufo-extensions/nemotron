@@ -40,9 +40,8 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
   For top-k sampling the GPU summarizes each row, so the host sorts a few
   candidates instead of the vocabulary; other settings sample the full row.
 - NVIDIA's LiLiCorr drafter is a DFlash drafter, so it loads with
-  `--speculative dflash2 --dflash-model`. Each round drafts up to
-  `--draft-tokens` (at most 7, the default) tokens and the trunk verifies them
-  in one pass; the drafter's draft length is fixed (`--draft-policy fixed`).
+  `--speculative dflash2 --dflash-model`. Each round drafts a fixed 7 tokens
+  and the trunk verifies them in one pass.
   A verified row equals decoding its token alone, so greedy output with the
   drafter equals greedy output without it.
 - Concurrent requests decode together, one token each, in batches of up to
@@ -72,12 +71,12 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
 
 ## Known limits
 
-- Images only: Gufo's text API has no video input, and the projector has no
-  audio encoder.
+- Images only: Gufo's text API takes no video, and NVIDIA released Bolt
+  without an audio encoder (its projector holds only the vision model).
 - Encoding an image holds the GPU like a prompt pass, so other sessions
   wait for it: 1.1 s for a 1080p screenshot, 2.4 s for the largest images
   (see [benchmarks](docs/models/nemotron-3.5-bolt/BENCHMARKS.md#images)).
-- 40 of Gufo's 53 functional API suites pass without a projector and 49 of
+- 42 of Gufo's 53 functional API suites pass without a projector and 51 of
   63 with it (`image-count` and `image-detail` fail), with and without the
   drafter;
   [QUALITY.md](docs/models/nemotron-3.5-bolt/QUALITY.md) gives the reason for
@@ -144,11 +143,16 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.2.1 | `0e2de43e` | 0.2.25 |
 | 0.2.0 | `5f9612c3` | 0.2.16 |
 | 0.1.0 | `5f9612c3` | 0.2.16 |
 
 ## Release history
 
+- 0.2.1 (2026-11-10): builds against Gufo `0e2de43e`, whose cache retention
+  lets the full functional run pass `sampling-defaults` and `cache-edits`.
+  Gufo now ignores `--draft-tokens` and `--draft-policy`; each round drafts
+  7 tokens.
 - 0.2.0 (2026-11-10): image input through NVIDIA's vision projector
   (`--mmproj`) in `serve`, `prompt` and `chat`.
 - 0.1.0 (2026-11-09): Nemotron 3.5 Bolt 74B-A9B with the ROCm runtime,

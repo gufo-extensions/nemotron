@@ -49,7 +49,6 @@ void nemotron_provider_register(gufo::ext::Registry& registry) {
       .speculative_defaults = {{.backend = "dflash2",
                                 .max_draft_tokens = 7,
                                 .min_draft_tokens = 1,
-                                .draft_policy = "fixed",
-                                .draft_policies = {"fixed"}}},
+                                .draft_policy = "fixed"}},
   });
 }

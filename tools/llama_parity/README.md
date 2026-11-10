@@ -62,3 +62,12 @@ g++ -std=c++17 -O2 -I$L/common -I$L/include -I$L/ggml/include -I$L/vendor \
 "$OUT/llama_dflash" TARGET.gguf DRAFT.gguf --tokens "$TOKENS" \
   --anchors 40,52,64 --dump "$OUT/llama_dflash.bin" --f32-kv
 ```
+
+For Nemotron 3.5 Bolt the sequence is [prompts/fibonacci.txt](prompts/fibonacci.txt)
+followed by the trunk's greedy answer (`nemotron_runtime_probe --generate 240`
+prints its IDs), with anchors every 12th position from 40 to 268:
+
+```sh
+nemotron_drafter_probe --model TARGET.gguf --drafter DRAFT.gguf \
+  --dump "$OUT/llama_dflash.bin"
+```

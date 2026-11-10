@@ -221,6 +221,9 @@ public:
         .retained_snapshot_capacity_bytes = HostSnapshotBudgetBytes(),
         .retained_snapshot_ceiling_bytes = HostSnapshotCeilingBytes(),
         .requires_device_runtime_lock = true,
+        // No prompt-state admission charge: every session allocates its
+        // K/V rows for the whole context up front, so a prompt commits no
+        // memory of its own.
     };
   }
 

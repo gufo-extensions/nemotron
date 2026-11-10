@@ -3,8 +3,11 @@
 There is no capability score yet. This page records numerical checks of the
 ROCm runtime against llama.cpp on NVIDIA's QAD 24 GB GGUF, of the vision
 encoder against NVIDIA's model code and llama.cpp, the extension's own tests,
-and Gufo's functional API suites. Measured November 9, 2026, on Gufo
-`5f9612c3`: the text checks with extension 0.1.0, the image checks with 0.2.0.
+and Gufo's functional API suites. The runtime and image checks were measured
+November 9, 2026, on Gufo `5f9612c3` (text with extension 0.1.0, images with
+0.2.0); the drafter comparison and the functional suites on November 10 on
+Gufo `b62b1674` with 0.2.1. On Gufo `0e2de43e`, which changes only how the
+server writes numbers in tool calls, the tool suites give the same results.
 
 ## ROCm runtime versus llama.cpp
 
@@ -38,6 +41,31 @@ prompt, all near ties: positions 26 and 100 (reference top-1 probability 0.12
 and 0.38), which also split llama.cpp's backends, and position 132 (0.13 to
 0.14).
 
+## LiLiCorr drafter versus llama.cpp
+
+The same llama.cpp build with its DFlash implementation, F32 KV cache,
+Vulkan. The trunk answers the prompt in
+[prompts/fibonacci.txt](../../../tools/llama_parity/prompts/fibonacci.txt)
+(a request for a Python function) greedily with 240 tokens. With the drafter
+it emits the same 240 tokens in 37 rounds, accepting 203 of 252 drafted
+tokens. On the resulting 280-token sequence llama.cpp drafts one block at each
+of 20 anchors, every 12th position from 40 to 268, from the trunk's features;
+`nemotron_drafter_probe` injects the same features into the extension's
+drafter and compares the seven slots each block proposes:
+
+| Measure | Result |
+| --- | ---: |
+| Top-1 agreement of the 140 slots | 140/140 |
+| KL median / p90 / max | 3.2e-6 / 2.0e-4 / 3.7e-4 |
+| Candidate lists of a slot: same order / same set | 111 / 129 of 140 |
+| Lattice scores where both candidate lists agree (5,168): \|diff\| median / p90 / max | 0.019 / 0.057 / 0.73 |
+| Greedy lattice walks equal | 19 of 20 |
+
+The candidate lists differ only in the order or choice of near-tied
+candidates. The walk that differs, at anchor 136, differs in its seventh
+token, in a block whose first token is already wrong on both sides, so it
+changes no accepted token.
+
 ## Runtime and continuation
 
 - `nemotron_runtime_test`, on the released files with the LiLiCorr drafter:
@@ -64,23 +92,23 @@ and 0.38), which also split llama.cpp's backends, and position 132 (0.13 to
 Gufo's `tests/functional/run.py --suite all` with
 `--sampling-preset provider`, four sessions, once autoregressive and once
 with `--speculative dflash2` and NVIDIA's LiLiCorr drafter. Both modes pass
-the same 40 of 53 suites; the drafting run exercises drafts in `state-edges`.
+the same 42 of 53 suites; the drafting run accepts 16,999 of 28,097 drafted
+tokens and exercises drafts in `state-edges`.
 
 Passed: discovery, openai-count-tokens, messages-count-tokens,
 messages-image-counts, responses, stops, structured, tool-streaming,
 tool-edges, tool-agent, tool-agent-loop, tool-history, messages-tools,
 tool-untyped, tool-choice-cache, tool-parameter-order, tool-type-unions,
-sampling-ranges, logprobs, responses-logprobs, batch, long-context,
-state-edges, progress, stream-start, metrics, cache-rotation,
-cache-concurrency, cache-shared-prefix, system-injection, and the cancel,
-persistence and disk-spacing suites in RAM and on disk.
+sampling-defaults, sampling-ranges, logprobs, responses-logprobs, batch,
+long-context, state-edges, progress, stream-start, metrics, cache-edits,
+cache-rotation, cache-concurrency, cache-shared-prefix, system-injection, and
+the cancel, persistence and disk-spacing suites in RAM and on disk.
 
-The other thirteen fail for these reasons, the same in both modes (with the
+The other eleven fail for these reasons, the same in both modes (with the
 projector `tool-schema-edges` passed too):
 
 | Suite | Reason |
 | --- | --- |
-| `sampling-defaults`, `cache-edits` | Pass when run alone; they fail only after the earlier suites of the full run have filled the RAM cache, where every checkpoint keeps about 175 MB of private state, mostly Mamba states. Their replays then find no checkpoint to restore. |
 | `conversation` | A reply discarded after cancellation re-prefills 22 tokens; the suite allows 16. The template moves the reasoning-effort hint to the last user turn, so the hint and the new turn are recomputed. |
 | `cache-growth`, `reasoning-separator` | The template replaces earlier reasoning with `<think></think>` unless the request sets `preserve_thinking`, so a replayed turn with reasoning no longer matches the generated tokens. With `preserve_thinking` the generated turn is reused. |
 | `cache-depth` | The suite expects its prompt to exceed 16,384 tokens; Nemotron's tokenizer encodes it in 16,217. |
@@ -91,8 +119,8 @@ projector `tool-schema-edges` passed too):
 | `tool-reasoning` | The model quotes a call in a code block instead of making it. |
 
 With the vision projector (`--mmproj`, `--expected-input-modalities
-text,image`) ten image suites join the run: 49 of 63 pass in both modes, the
-drafting run accepting 17,391 of 28,687 drafted tokens. The text suites fail
+text,image`) ten image suites join the run: 51 of 63 pass in both modes, the
+drafting run accepting 17,747 of 29,351 drafted tokens. The text suites fail
 as above, except `tool-schema-edges`, which passed. Passed image suites:
 `image-inputs`, `tool-images`, `messages-image-counts` and
 `openai-count-tokens` with images, and the image cancel suites in RAM and on
@@ -114,6 +142,15 @@ llama_logits "$MODEL" --tokens "$TOKENS" --dump cpu.bin --f32-kv --cpu
 nemotron_runtime_probe --model "$MODEL" --tokens "$TOKENS" --dump prefill.bin
 nemotron_runtime_probe --model "$MODEL" --tokens "$TOKENS" --dump decode.bin --step
 python3 tools/llama_parity/compare_logits.py vulkan.bin prefill.bin --vocab 131072
+
+# Drafter: the trunk's greedy answer to prompts/fibonacci.txt, then 20 anchors.
+DRAFT=NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf
+PROMPT=$(llama_logits "$MODEL" --special --text-file tools/llama_parity/prompts/fibonacci.txt)
+nemotron_runtime_probe --model "$MODEL" --tokens "$PROMPT" --generate 240 \
+  [--drafter "$DRAFT"]   # prints the answer's ids; equal with and without
+llama_dflash "$MODEL" "$DRAFT" --tokens "$PROMPT,$ANSWER" \
+  --anchors $(seq -s, 40 12 268) --dump dflash.bin --f32-kv
+nemotron_drafter_probe --model "$MODEL" --drafter "$DRAFT" --dump dflash.bin
 
 # In a Gufo checkout built with this extension:
 python3 tests/functional/run.py --output report --sampling-preset provider \
@@ -210,7 +247,3 @@ questions are unchanged.
   merged token and `</img>`, the positions of the rendered tokens after it,
   and the cache identities: a prefix before an image keeps the identity of
   the images before it, and the encoder and every pixel are part of it.
-
-The drafter's own comparison with llama.cpp's DFlash implementation
-(`tools/llama_parity/llama_dflash.cpp` and `nemotron_drafter_probe`) was not
-repeated for this release.
