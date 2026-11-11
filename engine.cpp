@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <gufo/ext/gguf_reader.hpp>
 #include <stdexcept>
 #include <utility>
@@ -441,11 +442,32 @@ void TakeHeads(const Session::State& st, bool summarized, float temperature,
 
 }  // namespace
 
+void Session::SetPrefillYield(std::size_t groups, std::function<void()> yield) {
+  yield_groups_ = yield ? std::max<std::size_t>(groups, 1) : 1;
+  yield_ = std::move(yield);
+}
+
 DraftContext* Session::draft() noexcept {
   return state_->draft.get();
 }
 
 namespace {
+
+/// Relative time of a block in a prefill pass of `n` tokens from `position`,
+/// in milliseconds of a 2,048-token pass on Strix Halo: about 20 for a Mamba
+/// block and 28 for a MoE block (22 to 31 by its expert count); attention
+/// takes 8.6 plus 1.5 per 1,024 positions its rows read on average.
+double PassCost(BlockType type, std::uint32_t position, int n) {
+  switch (type) {
+    case BlockType::kMamba:
+      return 20.0;
+    case BlockType::kMoe:
+      return 28.0;
+    case BlockType::kAttention:
+      return 8.6 + 1.5 * (position + n / 2.0) / 1024.0;
+  }
+  return 0.0;
+}
 
 /// Runs one chunk of at most kChunk tokens through the trunk.
 class Forward {
@@ -454,6 +476,35 @@ public:
   Forward(const Config& c, const rocm::DeviceModel& m, Session::State& st,
           bool verify = false)
       : c_(c), m_(m), st_(st), verify_(verify) {}
+
+  /// Splits the chunk at `position` into about `groups` layer groups of
+  /// similar duration and runs `yield` between two of them, once the stream
+  /// has finished the first. The arithmetic stays that of a whole pass.
+  void SplitLayers(std::size_t groups, std::uint32_t position, int n,
+                   const std::function<void()>* yield) {
+    const auto& layers = m_.layers();
+    yield_after_.assign(layers.size(), false);
+    yield_ = yield;
+    if (groups <= 1 || yield == nullptr || !*yield)
+      return;
+    std::vector<double> cumulative(layers.size());
+    double total = 0.0;
+    for (std::size_t il = 0; il < layers.size(); ++il)
+      cumulative[il] = total += PassCost(layers[il].type, position, n);
+    // The group ends at the block boundary nearest each share of the pass.
+    std::size_t il = 0;
+    for (std::size_t g = 1; g < groups; ++g) {
+      const double target =
+          total * static_cast<double>(g) / static_cast<double>(groups);
+      while (il + 1 < layers.size() && cumulative[il] < target)
+        ++il;
+      std::size_t end = il;
+      if (end > 0 && target - cumulative[end - 1] < cumulative[end] - target)
+        --end;
+      if (end + 1 < layers.size())
+        yield_after_[end] = true;
+    }
+  }
 
   /// Enqueues the chunk; `head_rows` final rows (0, 1 or n) go through the
   /// output head into `logits` on the device. With a drafter, the chunk's
@@ -498,6 +549,12 @@ public:
         case BlockType::kMoe:
           Moe(l, n);
           break;
+      }
+      if (ok_ && !yield_after_.empty() && yield_after_[il]) {
+        // Other sessions decode now; nothing of this chunk is in flight.
+        Ok(hipStreamSynchronize(st_.stream));
+        if (ok_)
+          (*yield_)();
       }
     }
     if (ok_ && features && st_.draft != nullptr) {
@@ -862,6 +919,9 @@ private:
   bool verify_;
   bool ok_{true};
   std::string error_;
+  /// Per block: the chunk yields after it (SplitLayers).
+  std::vector<bool> yield_after_;
+  const std::function<void()>* yield_{nullptr};
 };
 
 }  // namespace
@@ -979,6 +1039,8 @@ bool Session::AppendRows(std::span<const std::int32_t> tokens,
         return fail(error);
     } else {
       Forward forward(c, device, st);
+      forward.SplitLayers(yield_groups_, position_, static_cast<int>(n),
+                          &yield_);
       if (!forward.Enqueue(static_cast<int>(n), head_rows, device_logits))
         return fail(forward.error());
     }

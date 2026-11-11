@@ -3,6 +3,7 @@
 #include <hip/hip_runtime.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <gufo/ext/experimental/managed_alloc.hpp>
 #include <gufo/ext/experimental/weight_upload.hpp>
@@ -20,6 +21,10 @@ namespace gufo::models::nemotron {
 namespace {
 
 using rocm::VisionOperand;
+
+/// Encoding time after which the encoder lets other sessions decode, as long
+/// as Gufo's scheduler aims to keep a decoder waiting for one layer group.
+constexpr std::chrono::milliseconds kYieldInterval{250};
 
 void Check(hipError_t status, const char* what) {
   if (status != hipSuccess)
@@ -114,9 +119,9 @@ struct VisionEncoder::Impl {
   }
 
   void Upload(const VisionWeights& w, const core::GgufReader& reader);
-  std::shared_ptr<const VisionEmbedding> Run(std::span<const float> patches,
-                                             const ImageGrid& grid,
-                                             const Observer& observer);
+  std::shared_ptr<const VisionEmbedding> Run(
+      std::span<const float> patches, const ImageGrid& grid,
+      const Observer& observer, const std::function<void()>& yield);
   void Observe(const Observer& observer, std::string_view stage,
                const float* device, std::size_t count) {
     if (!observer)
@@ -236,7 +241,7 @@ void VisionEncoder::Impl::Upload(const VisionWeights& w,
 
 std::shared_ptr<const VisionEmbedding> VisionEncoder::Impl::Run(
     std::span<const float> patches, const ImageGrid& grid,
-    const Observer& observer) {
+    const Observer& observer, const std::function<void()>& yield) {
   const VisionConfig& c = config;
   const int width = static_cast<int>(c.width);
   const int ff = static_cast<int>(c.ff_size);
@@ -269,7 +274,16 @@ std::shared_ptr<const VisionEmbedding> VisionEncoder::Impl::Run(
   Observe(observer, "embed", xs, static_cast<std::size_t>(tokens) * width);
 
   const float scale = 1.0F / std::sqrt(static_cast<float>(c.HeadDim()));
+  auto since_yield = std::chrono::steady_clock::now();
   for (std::size_t il = 0; il < layers.size(); ++il) {
+    if (yield && il > 0) {
+      // Between blocks the stream holds nothing but this image's rows.
+      Check(hipStreamSynchronize(stream), "vision encoder");
+      if (std::chrono::steady_clock::now() - since_yield >= kYieldInterval) {
+        yield();
+        since_yield = std::chrono::steady_clock::now();
+      }
+    }
     const DeviceLayer& l = layers[il];
     Check(rocm::VisionLayerNorm(xs, l.norm1, l.norm1_b, hs, tokens, width,
                                 c.eps, operand, stream),
@@ -316,6 +330,10 @@ std::shared_ptr<const VisionEmbedding> VisionEncoder::Impl::Run(
                c.projection);
   Check(hipStreamSynchronize(stream), "vision encoder");
   Observe(observer, "output", embedding->data_, merged * c.projection);
+  // The pass that takes these rows follows at once; without a round here the
+  // encoder's tail and that pass's first layer group add up.
+  if (yield)
+    yield();
   return embedding;
 }
 
@@ -411,10 +429,11 @@ bool VisionEncoder::Prepare(std::string* error_msg) {
 
 std::shared_ptr<const VisionEmbedding> VisionEncoder::Encode(
     std::span<const float> patches, const ImageGrid& grid,
-    std::string* error_msg, const Observer& observer) {
+    std::string* error_msg, const Observer& observer,
+    const std::function<void()>& yield) {
   const std::lock_guard lock(impl_->mutex);
   try {
-    return impl_->Run(patches, grid, observer);
+    return impl_->Run(patches, grid, observer, yield);
   } catch (const std::exception& e) {
     if (error_msg != nullptr)
       *error_msg = std::string("vision encoder: ") + e.what();

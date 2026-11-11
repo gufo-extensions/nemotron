@@ -74,9 +74,13 @@ public:
   [[nodiscard]] bool Prepare(std::string* error_msg = nullptr);
 
   /// Encodes PreprocessImage's patches of `grid`. Calls are serialized.
+  /// With `yield`, the encoder calls it between two blocks every 250 ms or
+  /// so and once at the end, with its stream idle, so that other sessions
+  /// can decode; it must not encode.
   [[nodiscard]] std::shared_ptr<const VisionEmbedding> Encode(
       std::span<const float> patches, const ImageGrid& grid,
-      std::string* error_msg = nullptr, const Observer& observer = {});
+      std::string* error_msg = nullptr, const Observer& observer = {},
+      const std::function<void()>& yield = {});
 
 private:
   struct Impl;

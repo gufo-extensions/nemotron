@@ -47,8 +47,18 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
   drafts so far.
   A verified row equals decoding its token alone, so greedy output with the
   drafter equals greedy output without it.
-- Concurrent requests decode together, one token each, in batches of up to
-  eight; a request decoding alone drafts.
+- A request decoding alone drafts. Concurrent requests decode together, one
+  token each, in batches of up to eight, unless two or three of them emit
+  tokens faster drafting one round each in turn: after 16 tokens of its
+  answer, each request's own rounds measure its rate against the timed
+  shared passes. Two or three requests writing code or JSON gain 39 % that
+  way; prose stays in shared passes. Greedy output is the same either way.
+- Beside decoding sessions, a prompt pass splits into up to four layer
+  groups (one per 512 tokens) and the image encoder pauses about every
+  250 ms, so the others keep decoding between them: they wait up to 0.6 s
+  at a time instead of 2.1 s for a long prompt and 4.5 s for a 4K image,
+  and the prompt takes 8 to 11 % longer, mostly their decode rounds. A
+  request alone runs as in 0.2.2.
 - Conversations continue from Gufo's RAM and disk cache: attention rows,
   Mamba states and the drafter's rings are restored instead of recomputed.
 
@@ -76,9 +86,6 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
 
 - Images only: Gufo's text API takes no video, and NVIDIA released Bolt
   without an audio encoder (its projector holds only the vision model).
-- Encoding an image holds the GPU like a prompt pass, so other sessions
-  wait for it: 1.1 s for a 1080p screenshot, 2.4 s for the largest images
-  (see [benchmarks](docs/models/nemotron-3.5-bolt/BENCHMARKS.md#images)).
 - 42 of Gufo's 53 functional API suites pass without a projector and 51 of
   63 with it (`image-count` and `image-detail` fail), with and without the
   drafter;
@@ -87,8 +94,13 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
   reasoning is dropped from the history unless the request sets
   `preserve_thinking`, the reasoning-effort hint moves to the last user turn,
   and at effort `high` the model reasons at length before a forced tool call.
-- A prompt pass beside decoding sessions runs whole (up to 2,048 tokens), so
-  other sessions wait for it.
+- Beside a prompt, other sessions still pause about 0.6 s per layer group:
+  Gufo splits a 2,048-token pass into four groups at most
+  ([benchmarks](docs/models/nemotron-3.5-bolt/BENCHMARKS.md#concurrent-requests-in-023)).
+- Concurrent requests do not verify their drafts in one shared pass, which
+  would need Mamba kernels over several sessions' segments; drafting in turn
+  pays off only for two or three requests with predictable text, such as
+  code.
 
 ## Build
 
@@ -151,6 +163,7 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.2.3 | `0e2de43e` | 0.2.25 |
 | 0.2.2 | `0e2de43e` | 0.2.25 |
 | 0.2.1 | `0e2de43e` | 0.2.25 |
 | 0.2.0 | `5f9612c3` | 0.2.16 |
@@ -158,6 +171,14 @@ compares image answers with llama.cpp's server.
 
 ## Release history
 
+- 0.2.3 (2026-11-11): prompt passes beside decoding sessions split into
+  layer groups, and image encoding pauses for them, so other sessions wait
+  at most about 0.6 s at a time instead of 2.1 s (long prompts) and 4.5 s
+  (4K images); results stay bit-identical. Two or three concurrent
+  requests draft one round each in turn when that emits tokens faster than
+  a shared pass: 39 % more tokens per second together for code and JSON,
+  16 % for code beside prose, unchanged for prose and four requests. A
+  request alone prefills and decodes as before.
 - 0.2.2 (2026-11-11): draft verification and batched decoding run the
   IQ2_XXS experts on BF16 activations without staging, the routed ones once
   per expert for all tokens of a block that chose it; results stay

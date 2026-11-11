@@ -75,9 +75,18 @@ changes no accepted token.
     one bulk prefill (KL 7.4e-5, same top-1);
   - decoding two to eight sessions in one batch gives rows bit-identical to
     decoding them one at a time;
+  - a prompt pass split into four layer groups, with another session
+    decoding between them, gives logits bit-identical to the whole pass, and
+    the other session's tokens stay those of its own run;
   - greedy draft-and-verify rounds emit the same 48 tokens as plain greedy
     decoding, with 38 of them accepted drafts;
   - device logit heads draw the full rows' tokens for top-k sampling.
+- Over HTTP (0.2.3, [benchmarks](BENCHMARKS.md#concurrent-requests-in-023)):
+  greedy answers to a 4K image prompt and a 5,300-token text prompt, split
+  into layer groups beside a streaming request, equal 0.2.2's unsplit ones,
+  and so does the streaming request's answer; 13 answers from mixes of two
+  to four concurrent requests are the same whether they share passes or
+  draft in turn.
 - `nemotron_continuation_test` captures cache checkpoints in odd pieces and
   restores them in reverse order into sessions holding other, longer states.
   At 3, 100, 600, 1,031 and 2,500 tokens the restored attention rows, Mamba
@@ -96,7 +105,9 @@ Gufo's `tests/functional/run.py --suite all` with
 with `--speculative dflash2` and NVIDIA's LiLiCorr drafter. Both modes pass
 the same 42 of 53 suites; the drafting run accepts 16,838 of 23,735 drafted
 tokens (0.2.1, which always verified 7 drafts: 16,999 of 28,097) and
-exercises drafts in `state-edges`.
+exercises drafts in `state-edges`. With 0.2.3's concurrency changes, `batch`
+and `prefill-scheduling` (which `all` leaves out) pass with the drafter;
+the full run above is 0.2.2's.
 
 Passed: discovery, openai-count-tokens, messages-count-tokens,
 messages-image-counts, responses, stops, structured, tool-streaming,

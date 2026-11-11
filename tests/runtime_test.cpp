@@ -1,11 +1,13 @@
 // Session-level checks of the ROCm runtime on the pinned model: incremental
 // decode (the captured single-token graph) against one bulk prefill, exact
-// snapshot restore into another session, and invalidation. With the LiLiCorr
-// drafter (second argument, GUFO_NEMOTRON_BOLT_DRAFTER, or NVIDIA's drafter
-// file beside the trunk) also: a verified block committed in part against
-// appending that part, a discarded verification, drafts from a restored
-// snapshot, and draft-and-verify rounds against plain greedy decoding. Skips
-// without a model path (argument or GUFO_NEMOTRON_BOLT_GGUF).
+// snapshot restore into another session, invalidation, a pass split into
+// layer groups with another session decoding in between, and batched decoding
+// against serial decoding. With the LiLiCorr drafter (second argument,
+// GUFO_NEMOTRON_BOLT_DRAFTER, or NVIDIA's drafter file beside the trunk)
+// also: a verified block committed in part against appending that part, a
+// discarded verification, drafts from a restored snapshot, and
+// draft-and-verify rounds against plain greedy decoding. Skips without a
+// model path (argument or GUFO_NEMOTRON_BOLT_GGUF).
 
 #include <algorithm>
 #include <cmath>
@@ -319,6 +321,39 @@ void CheckBatch(nb::Model& model, const std::vector<std::int32_t>& prompt,
   }
 }
 
+/// A prompt pass split into layer groups, with another session decoding
+/// between the groups, equals a whole pass bit for bit, and the other
+/// session's rows equal those of decoding alone.
+void CheckLayerGroups(nb::Model& model, const std::vector<std::int32_t>& prompt,
+                      const std::vector<float>& whole,
+                      const std::vector<std::int32_t>& continuation,
+                      const std::vector<std::vector<float>>& expected) {
+  std::string error;
+  const std::size_t vocab = model.config().vocab_size;
+  auto split = model.CreateSession(4096, &error);
+  auto other = model.CreateSession(4096, &error);
+  std::vector<float> logits(vocab), other_logits(vocab);
+  Require(split && other && other->Append(prompt, other_logits, &error),
+          "layer groups: " + error);
+  std::size_t yields = 0;
+  bool other_exact = true;
+  split->SetPrefillYield(4, [&] {
+    if (yields < continuation.size()) {
+      const std::int32_t one[] = {continuation[yields]};
+      other_exact = other->Append(one, other_logits, &error) && other_exact &&
+                    other_logits == expected[yields];
+    }
+    ++yields;
+  });
+  Require(split->Append(prompt, logits, &error), "split prefill: " + error);
+  split->SetPrefillYield(1, {});
+  std::printf("pass in 4 layer groups: %zu yields, %s\n", yields,
+              logits == whole ? "bit-identical" : "rows differ");
+  Check(yields == 3, "a pass in four layer groups yields three times");
+  Check(logits == whole, "a pass split into layer groups equals a whole pass");
+  Check(other_exact, "a session decoding between layer groups is unaffected");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -413,6 +448,8 @@ int main(int argc, char** argv) {
   Require(restored->Append(prompt, logits, &error),
           "after invalidate: " + error);
   Check(logits == bulk_logits, "invalidated session restarts from scratch");
+
+  CheckLayerGroups(*model, prompt, bulk_logits, continuation, first_run);
 
   CheckHeads(*model, prompt,
              std::vector<std::int32_t>(prompt.end() - 8, prompt.end()));

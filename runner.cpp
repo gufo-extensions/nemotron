@@ -4,11 +4,14 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <functional>
 #include <gufo/ext/component_cache_resources.hpp>
 #include <gufo/ext/gguf_identity.hpp>
 #include <gufo/ext/host_budget.hpp>
 #include <gufo/ext/json.hpp>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -34,6 +37,14 @@ sampling::TextSamplingDefaults SamplingDefaults() {
 namespace {
 using namespace gufo::ext;
 
+/// Decayed means of a state's recent LiLiCorr rounds: the tokens each
+/// emitted and its wall time.
+struct RoundRate {
+  double tokens{0.0};
+  double seconds{0.0};
+  bool measured{false};
+};
+
 /// One cache slot's session plus the next-token distribution at its frontier.
 class State final : public TextRunnerState {
 public:
@@ -48,6 +59,11 @@ public:
   Frontier frontier;
   /// How this conversation's text has accepted drafts.
   DraftHistory draft_history;
+  /// What the current request's rounds have yielded, to choose between
+  /// drafting in turn and decoding in a shared pass beside other requests.
+  RoundRate round_rate;
+  /// The position where the current request's answer began.
+  std::uint32_t answer_start{0};
   /// The host copy matches the session's frontier.
   bool logits_ready{false};
   /// The head filter of the request decoding from this state, for the
@@ -92,6 +108,40 @@ bool HasImages(const ChatRequest& request) {
 
 constexpr std::string_view kStateAbi =
     "nemotron-h/state/v1;kv=f16;mamba=f32;chunk=2048";
+
+// Beside decoders, a prompt keeps its 2,048-token pass and splits it into
+// layer groups: one pass takes about 2 s (2.5 s at a depth of 32K), a decode
+// step 27 ms. Gufo asks for a group per 250 ms, at most one per 512 tokens.
+constexpr std::size_t kMaxPrefillLayerGroups = 8;
+
+// Concurrent requests either decode one token each in a shared pass, or
+// draft in turn, one LiLiCorr round each, when their recent rounds emit
+// tokens faster than that pass does. A round costs about 42 ms plus 2.9 ms
+// per draft, a shared pass 27 ms plus 3 ms per further request: two requests
+// writing code (6 of 7 drafts kept) gain from rounds, prose does not.
+/// Most requests that draft in turn. Four share a pass at 111 tok/s or more,
+/// which rounds of eight tokens in 62 ms barely beat (measured: 1 % slower).
+constexpr std::size_t kMaxDraftInTurn = 3;
+/// Tokens of its answer a request decodes in shared passes before it may
+/// draft in turn: a reply this short gains nothing from rounds, and peers
+/// that arrive together still form a batch.
+constexpr std::uint32_t kSharedAnswerTokens = 16;
+/// Weight of the newest measurement in a decayed mean.
+constexpr double kRateWeight = 0.2;
+/// Tokens per round toward which a state's mean drifts while it decodes in
+/// shared passes, so that it tries a round again now and then: about the
+/// rate of code.
+constexpr double kOptimisticRoundTokens = 5.0;
+constexpr double kRoundTokensDrift = 0.01;
+/// A shared pass of `width` requests on Strix Halo before measurements, in
+/// seconds.
+double PriorPassSeconds(std::size_t width) {
+  return 0.0273 + 0.003 * static_cast<double>(width - 1);
+}
+
+void Measure(double& mean, double value, bool first) {
+  mean = first ? value : mean + kRateWeight * (value - mean);
+}
 
 class Runner final : public HipTextModelRunner {
 public:
@@ -202,7 +252,7 @@ public:
         .sampling_defaults = SamplingDefaults(),
         .scheduling =
             TextSchedulingProfile{.pass_tokens = kPrefillChunk,
-                                  .max_layer_groups = 1,
+                                  .max_layer_groups = kMaxPrefillLayerGroups,
                                   .max_yield_decode_width = kMaxBatch},
     };
   }
@@ -367,7 +417,7 @@ public:
       throw std::logic_error("Nemotron reused prefix does not match its state");
     // A prompt served whole from the cache ends here; Prefill overrides it
     // when more of the prompt follows.
-    s.leading_separator = !prefix.empty() && prefix.back() == thought_close_;
+    StartAnswer(s, !prefix.empty() && prefix.back() == thought_close_);
   }
 
   TextPrefillStep Prefill(TextRunnerState& state,
@@ -389,6 +439,16 @@ public:
         prompt.begin() + static_cast<std::ptrdiff_t>(offset + consumed));
     s.frontier.head.candidates.clear();
     std::string error;
+    // Beside decoding sessions the host asks for layer groups: the encoder
+    // and the pass let the others decode in between.
+    std::function<void()> yield;
+    if (state.prefill_yield_groups() > 1)
+      yield = [&state] { state.YieldPrefill(); };
+    s.session->SetPrefillYield(state.prefill_yield_groups(), yield);
+    struct ClearYield {
+      Session& session;
+      ~ClearYield() { session.SetPrefillYield(1, {}); }
+    } clear_yield{*s.session};
     // The embeddings of the images this step reaches, encoded on first use.
     // Attention is causal, so a step may end inside an image.
     std::vector<InputRows> rows;
@@ -402,7 +462,8 @@ public:
         if (!embedding) {
           if (!vision_ || !image.patches)
             throw std::logic_error("Nemotron image prompt without its pixels");
-          embedding = vision_->Encode(*image.patches, image.grid, &error);
+          embedding =
+              vision_->Encode(*image.patches, image.grid, &error, {}, yield);
           if (!embedding)
             throw std::runtime_error("Nemotron " + error);
         }
@@ -425,7 +486,7 @@ public:
     }
     s.logits_ready = decode_ready;
     if (decode_ready)
-      s.leading_separator = prompt.back() == thought_close_;
+      StartAnswer(s, prompt.back() == thought_close_);
     return {.consumed_tokens = consumed, .decode_ready = decode_ready};
   }
 
@@ -470,13 +531,28 @@ public:
     s.logits_ready = true;
   }
 
-  /// Requests decoding together take one token each from a shared pass;
-  /// drafting needs a request decoding alone.
+  /// Requests decoding together take one token each from a shared pass, or
+  /// one LiLiCorr round each in turn when that is faster (DraftInTurn).
   std::vector<TextDecodeStep> DecodeBatch(
       std::span<const TextRunnerDecode> decodes) const override {
     if (decodes.size() < 2 || decodes.size() > kMaxBatch)
       return TextModelRunner::DecodeBatch(decodes);
     std::vector<TextDecodeStep> steps(decodes.size());
+    if (DraftInTurn(decodes)) {
+      for (std::size_t i = 0; i < decodes.size(); ++i) {
+        try {
+          steps[i] = DecodeStep(decodes[i].state.get(), decodes[i].max_tokens,
+                                decodes[i].sampler.get());
+        } catch (...) {
+          steps[i] = {};
+          steps[i].failure = std::current_exception();
+        }
+        steps[i].execution_plan = {.kind = TextExecutionPlanKind::kSerial,
+                                   .physical_width = 1};
+      }
+      return steps;
+    }
+    const auto start = std::chrono::steady_clock::now();
     std::vector<TextRunnerAdvance> advances;
     std::vector<std::size_t> advanced;
     for (std::size_t i = 0; i < decodes.size(); ++i) {
@@ -501,9 +577,20 @@ public:
         Advance(advances.front().state.get(), advances.front().token);
       else if (advances.size() > 1)
         AdvanceBatch(advances);
+      if (advances.size() == decodes.size())
+        MeasurePass(advances.size(),
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - start)
+                        .count());
     } catch (...) {
       for (const std::size_t i : advanced)
         steps[i].failure = std::current_exception();
+    }
+    for (const auto& decode : decodes) {
+      RoundRate& rate = Get(decode.state.get()).round_rate;
+      if (rate.measured && rate.tokens < kOptimisticRoundTokens)
+        rate.tokens +=
+            kRoundTokensDrift * (kOptimisticRoundTokens - rate.tokens);
     }
     const TextExecutionPlan plan{
         .kind = advances.size() > 1 ? TextExecutionPlanKind::kBatched
@@ -583,10 +670,22 @@ public:
     sampling::SamplerState working = sampler;
     SpeculativeRound round;
     std::string error;
+    const auto start = std::chrono::steady_clock::now();
     if (!SpeculativeStep(session, working, s.frontier, s.draft_history, budget,
                          is_stop, logprobs.has_value(), &round, &error)) {
       s.logits_ready = false;
       throw std::runtime_error("Nemotron draft round failed: " + error);
+    }
+    if (round.drafted != 0) {
+      RoundRate& rate = s.round_rate;
+      Measure(rate.tokens, static_cast<double>(round.tokens.size()),
+              !rate.measured);
+      Measure(rate.seconds,
+              std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                            start)
+                  .count(),
+              !rate.measured);
+      rate.measured = true;
     }
     sampler.CopyDrawStateFrom(working);
     s.head_filter = HeadFilterFor(sampler.config());
@@ -620,6 +719,42 @@ public:
   }
 
 private:
+  /// Whether the requests emit tokens faster drafting in turn than in a
+  /// shared pass, by their recent rounds and the recent passes of this width.
+  bool DraftInTurn(std::span<const TextRunnerDecode> decodes) const {
+    if (draft_tokens_ == 0 || decodes.size() > kMaxDraftInTurn)
+      return false;
+    double tokens = 0.0;
+    double seconds = 0.0;
+    bool unmeasured = false;
+    for (const auto& decode : decodes) {
+      const State& s = Get(decode.state.get());
+      if (decode.max_tokens <= 1 ||
+          s.session->Position() < s.answer_start + kSharedAnswerTokens)
+        return false;
+      const RoundRate& rate = s.round_rate;
+      unmeasured = unmeasured || !rate.measured;
+      tokens += rate.tokens;
+      seconds += rate.seconds;
+    }
+    // A request without rounds of its own drafts one to measure its text.
+    if (unmeasured)
+      return true;
+    double pass = PriorPassSeconds(decodes.size());
+    {
+      const std::lock_guard lock(pass_mutex_);
+      if (pass_seconds_[decodes.size()] > 0.0)
+        pass = pass_seconds_[decodes.size()];
+    }
+    return tokens * pass > static_cast<double>(decodes.size()) * seconds;
+  }
+
+  void MeasurePass(std::size_t width, double seconds) const {
+    const std::lock_guard lock(pass_mutex_);
+    double& mean = pass_seconds_[width];
+    Measure(mean, seconds, mean == 0.0);
+  }
+
   /// The text of `token` in the answer. Gufo's host trims the separator after
   /// a "</think>" the model writes, but it has no state for a block the
   /// prompt closed, where the template continues
@@ -636,6 +771,14 @@ private:
       return {};
     s.leading_separator = false;
     return piece.substr(first);
+  }
+
+  /// The prompt ends at the session's position; `closed_reasoning` when it
+  /// ends in "</think>". Rates of earlier requests describe other text.
+  void StartAnswer(State& s, bool closed_reasoning) const {
+    s.leading_separator = closed_reasoning;
+    s.round_rate = {};
+    s.answer_start = s.session->Position();
   }
 
   /// After a restore or a failure the host copy of the frontier is stale.
@@ -760,6 +903,10 @@ private:
   std::string vision_identity_;
   std::uint32_t context_;
   std::uint32_t draft_tokens_;
+  /// Decayed mean wall time of a shared decode pass, by width; zero before
+  /// the first.
+  mutable std::mutex pass_mutex_;
+  mutable std::array<double, kMaxBatch + 1> pass_seconds_{};
   /// "</think>", which ends the prompt when it closed reasoning itself.
   TextRunnerToken thought_close_{0};
   cache::Identity component_identity_;

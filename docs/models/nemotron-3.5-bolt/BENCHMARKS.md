@@ -30,8 +30,8 @@ pp2048 / tg128; depth is the cached prefix in tokens.
 
 Shared pp, separate mixed and repetitive tg and gains. pp is the highest
 measured rate per engine and depth across both text types. Gufo drafts while
-a request decodes alone; concurrent requests decode together in batches
-without drafting.
+a request decodes alone; for concurrent requests see
+[Concurrent requests in 0.2.3](#concurrent-requests-in-023).
 
 <!-- bench:single-lilicorr -->
 | Nemotron 3.5 Bolt 24GB LiLiCorr<br>Depth (tokens) | Gufo pp (tok/s) | llama.cpp pp (tok/s) | Gain pp | Gufo tg mixed (tok/s) | llama.cpp tg mixed (tok/s) | Gain mixed | Gufo tg repetitive (tok/s) | llama.cpp tg repetitive (tok/s) | Gain repetitive |
@@ -70,6 +70,78 @@ The cost of a round grows by about 2.9 ms per drafted token over a fixed
 42 ms (drafting, a one-token pass and the round's overhead), so code, which
 keeps 6 of 7 drafts, gains little from shorter rounds, and prose, which
 keeps 2, gains most.
+
+## Concurrent requests in 0.2.3
+
+Release builds on Gufo `0e2de43e`, served with the projector and LiLiCorr
+(`--sessions 4 --context 32768`), greedy, thinking off, each pair of builds
+measured back to back under a clean `machine-lock perf` on November 11,
+2026; profile `performance`, package power 85 to 86 W on average (peaks
+112 W), GPU at 2.3 to 2.5 GHz.
+
+**A decoder beside a cold prompt**
+([tools/bench/decode_stalls.py](../../../tools/bench/decode_stalls.py)): one
+request streams an essay; after 40 chunks a second request sends a cold
+prompt for one output token. The table gives the second request's time and
+the streaming request's longest pause while it ran, medians of three after
+a warm-up. 0.2.2 runs each 2,048-token pass and the image encoder whole;
+0.2.3 splits each pass into four layer groups (Gufo's limit for 2,048
+tokens) and pauses the encoder about every 250 ms and after its last block,
+with a decode round for the streaming request each time.
+
+| Cold prompt | Tokens | 0.2.2 prompt (s) | 0.2.3 prompt (s) | 0.2.2 longest pause (s) | 0.2.3 longest pause (s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Text, 4,500 words | 5,300 | 5.85 | 6.31 | 2.10 | 0.60 |
+| Rendered screen, 3840x2160 | 3,355 | 6.91 | 7.65 | 4.50 | 0.62 |
+
+The streaming request sends twice as many chunks while the prompt runs (35
+instead of 18 beside the text, 82 instead of 42 beside the image); each
+remaining pause is one layer group. With a decoder beside them, the image
+and text prompts' greedy answers and the decoder's own answer equal those
+of 0.2.2 without one.
+
+**Concurrent requests**
+([tools/bench/concurrent_bench.py](../../../tools/bench/concurrent_bench.py)):
+the requests of each mix start together and write up to 384 tokens (the
+Fibonacci function stops at 231); tokens of all requests per second of wall
+time, mean of two runs. 0.2.2 decodes concurrent requests one token each in
+shared passes; 0.2.3 lets two or three of them draft one round each in turn
+when their measured rounds emit tokens faster.
+
+| Mix | 0.2.2 (tok/s) | 0.2.3 (tok/s) | Gain |
+| --- | ---: | ---: | ---: |
+| Fibonacci function, ring buffer class (code, code) | 65.5 | 91.2 | +39.4% |
+| Code, code, JSON schema and record | 68.6 | 95.5 | +39.2% |
+| Fibonacci function, lighthouse essay (code, prose) | 57.4 | 66.8 | +16.3% |
+| Lighthouse essay, TCP explanation (prose, prose) | 58.2 | 58.6 | +0.8% |
+| Code, code, prose, prose | 83.9 | 83.3 | -0.7% |
+
+All 13 answers are identical across both builds. Prose keeps about 2 of 7
+drafts, so its rounds emit fewer tokens per second than a shared pass and
+both requests mostly share passes; four decoding together always share
+them.
+
+**A request alone** takes the same path as in 0.2.2: Gufo asks for layer
+groups only beside decoders, and a lone decoder drafts. Builds in the order
+0.2.2, 0.2.3, 0.2.3, 0.2.2, one request at a time; medians of all runs
+(package power 77 W on average while busy, peaks 110 W):
+
+| Request | 0.2.2 | 0.2.3 | Change |
+| --- | ---: | ---: | ---: |
+| Cold text prompt, 5,300 tokens (s) | 5.40 | 5.39 | -0.3% |
+| Cold 3840x2160 screen, 3,355 tokens (s) | 6.11 | 6.13 | +0.3% |
+| Fibonacci function, 231 tokens (tok/s) | 117.8 | 117.7 | 0.0% |
+| Lighthouse essay, 384 tokens (tok/s) | 54.9 | 54.8 | -0.1% |
+| TCP explanation, 384 tokens (tok/s) | 67.8 | 67.7 | -0.2% |
+
+The answers are identical, and each build's runs spread by up to 0.8 %
+(the text prompts by up to 4 %). Beside a decoder, the prompts above take 0.46 s
+and 0.74 s longer: 8 and 13 decode rounds of about 57 ms each for the
+streaming request, which emits twice as many chunks meanwhile.
+
+Raw results: [stalls](artifacts/concurrency-stalls.jsonl),
+[concurrent requests](artifacts/concurrency-requests.jsonl),
+[single requests](artifacts/concurrency-single.jsonl).
 
 ## Images
 

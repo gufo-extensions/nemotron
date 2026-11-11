@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <gufo/ext/sampling.hpp>
 #include <memory>
 #include <mutex>
@@ -176,6 +177,13 @@ public:
       std::span<const LogitHeadFilter* const> filters,
       std::span<LogitHead> heads, std::string* error_msg = nullptr);
 
+  /// Splits the passes of the following Appends into about `groups` layer
+  /// groups of similar duration and calls `yield` between two groups, once
+  /// the device has finished the first; one group, or an empty `yield`,
+  /// runs passes whole. `yield` may run other sessions of the model, never
+  /// this one. Every layer keeps the arithmetic of a whole pass.
+  void SetPrefillYield(std::size_t groups, std::function<void()> yield);
+
   /// Returns to position zero with empty caches and zero states.
   [[nodiscard]] bool Reset(std::string* error_msg = nullptr);
   /// Marks the session empty without device work; the next Append resets it.
@@ -240,6 +248,8 @@ private:
   std::uint32_t max_context_{0};
   std::uint32_t verified_{0};  ///< Tokens of a Verify awaiting Commit.
   bool needs_reset_{false};
+  std::size_t yield_groups_{1};
+  std::function<void()> yield_;
   ContinuationHooks* hooks_{nullptr};
 };
 
