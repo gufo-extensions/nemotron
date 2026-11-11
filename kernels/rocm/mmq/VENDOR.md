@@ -49,7 +49,9 @@ DSpark paths. `ggml_type_size(GGML_TYPE_NVFP4)` is corrected to 36 bytes.
 Additions here: `nb_mmq_dense_q8_1` runs the vector kernels on activations
 the caller already quantized, and the single-column fusion gains
 `dst_scale`, applied before `x_bias`, so a residual update with the NVFP4
-per-tensor scale fuses into the product.
+per-tensor scale fuses into the product. `nb_mmq_dense_tiled` forces the
+tiled kernels for any N; only `nemotron_kernel_bench` calls it, to compare
+them with the vector kernels at decode sizes.
 
 When importing upstream changes, keep the HIP dispatch, the `nb_` prefix and
 the namespace wrap, update the pin, and rerun `nemotron.mmq_ops`

@@ -5,7 +5,9 @@
 // the kernel rounds them (BF16 or FP16), so the only difference left is F32
 // accumulation order. Shapes cover partial
 // activation chunks, every token count up to the maximum, routed slots with
-// broadcast and per-slot activations, and the fused ReLU².
+// broadcast and per-slot activations, and the fused ReLU². The kernels on
+// BF16 activations must also equal the staged ones bit for bit, round
+// their BF16 stores exactly and group routed slots by expert.
 
 #include <hip/hip_runtime.h>
 
@@ -135,8 +137,89 @@ void Compare(const char* label, const std::vector<float>& got,
   Check(worst < kMaxRelError, label);
 }
 
+/// Runs the product of `a` again storing BF16 and checks that every stored
+/// value is the F32 result `got` rounded to nearest even.
+void CheckBf16Store(k::Iq2xxsGemvArgs a, const std::vector<float>& got) {
+  std::uint16_t* dout = nullptr;
+  HIP_OK(hipMalloc(&dout, got.size() * sizeof(std::uint16_t)));
+  a.out = nullptr;
+  a.out_bf16 = dout;
+  HIP_OK(k::Iq2xxsGemv(a, nullptr));
+  std::vector<std::uint16_t> stored(got.size());
+  HIP_OK(hipMemcpy(stored.data(), dout, stored.size() * sizeof(std::uint16_t),
+                   hipMemcpyDeviceToHost));
+  HIP_OK(hipFree(dout));
+  bool same = true;
+  for (std::size_t i = 0; i < got.size(); ++i) {
+    std::uint32_t u;
+    const float r = Bf16Round(got[i]);
+    std::memcpy(&u, &r, sizeof(u));
+    same = same && stored[i] == static_cast<std::uint16_t>(u >> 16);
+  }
+  Check(same, "BF16 stores round the F32 results");
+}
+
+/// Runs the product of `a` on the staged kernels (F32 activations, one
+/// block per routed slot) and checks that `got` matches them bit for bit.
+void CheckSameAsStaged(k::Iq2xxsGemvArgs a, const std::vector<float>& got) {
+  float* dout = nullptr;
+  HIP_OK(hipMalloc(&dout, got.size() * sizeof(float)));
+  a.out = dout;
+  a.x_bf16 = nullptr;
+  a.route = nullptr;
+  a.out_bf16 = nullptr;
+  HIP_OK(k::Iq2xxsGemv(a, nullptr));
+  std::vector<float> staged(got.size());
+  HIP_OK(hipMemcpy(staged.data(), dout, staged.size() * sizeof(float),
+                   hipMemcpyDeviceToHost));
+  HIP_OK(hipFree(dout));
+  Check(std::memcmp(staged.data(), got.data(), got.size() * sizeof(float)) == 0,
+        "BF16 kernels equal the staged kernels bit for bit");
+}
+
+/// The short routing groups every slot once, by expert, in slot order.
+void CheckRoute(const k::Iq2xxsRoute& route,
+                const std::vector<std::int32_t>& ids, int experts) {
+  std::int32_t num_tiles = 0;
+  HIP_OK(hipMemcpy(&num_tiles, route.num_tiles, sizeof(num_tiles),
+                   hipMemcpyDeviceToHost));
+  std::vector<int4> tiles(static_cast<std::size_t>(std::max(num_tiles, 0)));
+  std::vector<std::int32_t> order(ids.size());
+  HIP_OK(hipMemcpy(tiles.data(), route.tiles, tiles.size() * sizeof(int4),
+                   hipMemcpyDeviceToHost));
+  HIP_OK(hipMemcpy(order.data(), route.order,
+                   order.size() * sizeof(std::int32_t), hipMemcpyDeviceToHost));
+  std::vector<int> seen(ids.size(), 0);
+  std::vector<int> expert_tiles(static_cast<std::size_t>(experts), 0);
+  bool ok = num_tiles > 0;
+  int next = 0;
+  for (const int4& t : tiles) {
+    ok = ok && t.y == next && t.z > 0 && t.x >= 0 && t.x < experts;
+    if (!ok)
+      break;
+    ++expert_tiles[t.x];
+    for (int j = 0; j < t.z; ++j) {
+      const int slot = order[t.y + j];
+      ok = ok && slot >= 0 && slot < static_cast<int>(ids.size()) &&
+           ids[slot] == t.x && (j == 0 || slot > order[t.y + j - 1]);
+      if (ok)
+        ++seen[slot];
+    }
+    next += t.z;
+  }
+  ok = ok && next == static_cast<int>(ids.size());
+  for (int c : seen)
+    ok = ok && c == 1;
+  for (int c : expert_tiles)
+    ok = ok && c <= 1;
+  Check(ok, "short routing groups every slot once by expert");
+}
+
+/// With bf16, the activations go through ToBf16 and the kernels that read
+/// them; a relu2 product also stores BF16 once, which must round the F32
+/// result exactly.
 void DenseCase(int rows, int cols, int n, bool relu2, Rng& rng,
-               const std::uint32_t* grid) {
+               const std::uint32_t* grid, bool bf16 = false) {
   const auto w = RandomIq2xxs(rows, cols, rng);
   std::vector<float> x(static_cast<std::size_t>(n) * cols);
   for (float& v : x)
@@ -154,25 +237,40 @@ void DenseCase(int rows, int cols, int n, bool relu2, Rng& rng,
   a.cols = cols;
   a.n_tokens = n;
   a.relu2 = relu2;
+  std::uint16_t* dxb = nullptr;
+  if (bf16) {
+    HIP_OK(hipMalloc(&dxb, x.size() * sizeof(std::uint16_t)));
+    HIP_OK(k::ToBf16(dx, dxb, x.size(), nullptr));
+    a.x_bf16 = dxb;
+  }
   HIP_OK(k::Iq2xxsGemv(a, nullptr));
   std::vector<float> got(static_cast<std::size_t>(n) * rows);
   HIP_OK(hipMemcpy(got.data(), dout, got.size() * sizeof(float),
                    hipMemcpyDeviceToHost));
+  if (bf16) {
+    CheckSameAsStaged(a, got);
+    if (relu2)
+      CheckBf16Store(a, got);
+  }
+  HIP_OK(hipFree(dxb));
   std::vector<int> expert(n, 0);
   std::vector<int> x_row(n);
   for (int t = 0; t < n; ++t)
     x_row[t] = t;
   char label[96];
-  std::snprintf(label, sizeof(label), "dense %dx%d, %d tokens%s", rows, cols, n,
-                relu2 ? ", relu2" : "");
+  std::snprintf(label, sizeof(label), "dense %dx%d, %d tokens%s%s", rows, cols,
+                n, relu2 ? ", relu2" : "", bf16 ? ", bf16" : "");
   Compare(label, got, w, rows, cols, x, expert, x_row, relu2);
   HIP_OK(hipFree(dw));
   HIP_OK(hipFree(dx));
   HIP_OK(hipFree(dout));
 }
 
+/// With bf16, the slots run grouped by expert (Iq2xxsRouteShort) on BF16
+/// activations; few experts make tokens share them.
 void RoutedCase(int experts, int rows, int cols, int n, int used, bool per_slot,
-                bool relu2, Rng& rng, const std::uint32_t* grid) {
+                bool relu2, Rng& rng, const std::uint32_t* grid,
+                bool bf16 = false) {
   const auto w =
       RandomIq2xxs(static_cast<std::size_t>(experts) * rows, cols, rng);
   const int x_rows = per_slot ? n * used : n;
@@ -209,18 +307,42 @@ void RoutedCase(int experts, int rows, int cols, int n, int used, bool per_slot,
   a.cols = cols;
   a.n_tokens = n;
   a.relu2 = relu2;
+  std::uint16_t* dxb = nullptr;
+  k::Iq2xxsRoute route{};
+  if (bf16) {
+    HIP_OK(hipMalloc(&dxb, x.size() * sizeof(std::uint16_t)));
+    HIP_OK(k::ToBf16(dx, dxb, x.size(), nullptr));
+    a.x_bf16 = dxb;
+    const int slots = n * used;
+    route.max_tiles = slots;
+    HIP_OK(hipMalloc(&route.order, slots * sizeof(std::int32_t)));
+    HIP_OK(hipMalloc(&route.tiles, slots * sizeof(int4)));
+    HIP_OK(hipMalloc(&route.num_tiles, sizeof(std::int32_t)));
+    HIP_OK(k::Iq2xxsRouteShort(dids, slots, route, nullptr));
+    a.route = &route;
+  }
   HIP_OK(k::Iq2xxsGemv(a, nullptr));
   std::vector<float> got(static_cast<std::size_t>(n) * used * rows);
   HIP_OK(hipMemcpy(got.data(), dout, got.size() * sizeof(float),
                    hipMemcpyDeviceToHost));
+  if (bf16) {
+    CheckRoute(route, ids, experts);
+    CheckSameAsStaged(a, got);
+    if (relu2)
+      CheckBf16Store(a, got);
+    HIP_OK(hipFree(dxb));
+    HIP_OK(hipFree(route.order));
+    HIP_OK(hipFree(route.tiles));
+    HIP_OK(hipFree(route.num_tiles));
+  }
   std::vector<int> expert(ids.begin(), ids.end());
   std::vector<int> x_row(ids.size());
   for (std::size_t s = 0; s < ids.size(); ++s)
     x_row[s] = per_slot ? static_cast<int>(s) : static_cast<int>(s) / used;
   char label[96];
-  std::snprintf(label, sizeof(label), "routed %d experts %dx%d, %dx%d%s%s",
+  std::snprintf(label, sizeof(label), "routed %d experts %dx%d, %dx%d%s%s%s",
                 experts, rows, cols, n, used, per_slot ? ", per slot" : "",
-                relu2 ? ", relu2" : "");
+                relu2 ? ", relu2" : "", bf16 ? ", bf16" : "");
   Compare(label, got, w, rows, cols, x, expert, x_row, relu2);
   HIP_OK(hipFree(dw));
   HIP_OK(hipFree(dx));
@@ -399,6 +521,21 @@ int main() {
   RoutedCase(7, 32, 2304, 3, 4, true, false, rng, grid);
   RoutedCase(7, 32, 2048, 2, 3, true, false, rng, grid);
   RoutedCase(7, 32, 256, 8, 2, false, true, rng, grid);
+
+  // BF16 activations: exactly n rows, and routed slots grouped by expert,
+  // several tokens sharing experts (up to eight slots per expert).
+  for (int n : {2, 3, 5, 8}) {
+    DenseCase(64, 768, n, false, rng, grid, true);
+    DenseCase(32, 3072, n, true, rng, grid, true);
+  }
+  DenseCase(96, 1280, 7, true, rng, grid, true);
+  DenseCase(64, 4096, 8, true, rng, grid, true);
+  DenseCase(32, 5376, 4, false, rng, grid, true);
+  RoutedCase(12, 96, 512, 2, 9, false, true, rng, grid, true);
+  RoutedCase(12, 64, 1024, 8, 9, false, true, rng, grid, true);
+  RoutedCase(7, 32, 2304, 3, 4, true, false, rng, grid, true);
+  RoutedCase(5, 32, 768, 8, 3, true, false, rng, grid, true);
+  RoutedCase(7, 32, 256, 6, 2, false, true, rng, grid, true);
 
   // Partial token tiles, several row tiles, K spanning many stages.
   Nvfp4GemmCase(256, 512, 9, rng);

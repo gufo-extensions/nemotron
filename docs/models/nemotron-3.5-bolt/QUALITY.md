@@ -5,9 +5,11 @@ ROCm runtime against llama.cpp on NVIDIA's QAD 24 GB GGUF, of the vision
 encoder against NVIDIA's model code and llama.cpp, the extension's own tests,
 and Gufo's functional API suites. The runtime and image checks were measured
 November 9, 2026, on Gufo `5f9612c3` (text with extension 0.1.0, images with
-0.2.0); the drafter comparison and the functional suites on November 10 on
-Gufo `b62b1674` with 0.2.1. On Gufo `0e2de43e`, which changes only how the
-server writes numbers in tool calls, the tool suites give the same results.
+0.2.0); the drafter comparison and the functional suites with the vision
+projector on November 10 on Gufo `b62b1674` with 0.2.1; the text functional
+suites on November 11 on Gufo `0e2de43e` with 0.2.2, whose
+draft verification and draft lengths changed; they pass and fail as with
+0.2.1.
 
 ## ROCm runtime versus llama.cpp
 
@@ -92,8 +94,9 @@ changes no accepted token.
 Gufo's `tests/functional/run.py --suite all` with
 `--sampling-preset provider`, four sessions, once autoregressive and once
 with `--speculative dflash2` and NVIDIA's LiLiCorr drafter. Both modes pass
-the same 42 of 53 suites; the drafting run accepts 16,999 of 28,097 drafted
-tokens and exercises drafts in `state-edges`.
+the same 42 of 53 suites; the drafting run accepts 16,838 of 23,735 drafted
+tokens (0.2.1, which always verified 7 drafts: 16,999 of 28,097) and
+exercises drafts in `state-edges`.
 
 Passed: discovery, openai-count-tokens, messages-count-tokens,
 messages-image-counts, responses, stops, structured, tool-streaming,

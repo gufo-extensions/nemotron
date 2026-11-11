@@ -3,14 +3,53 @@
 #include <algorithm>
 #include <span>
 #include <utility>
+#include <vector>
 
 #include "drafter.hpp"
 #include "engine.hpp"
 
 namespace gufo::models::nemotron {
 
+namespace {
+
+/// A round verifies drafts while the walk's transition probabilities,
+/// scaled by the request's DraftHistory and multiplied from the first slot
+/// on, stay at or above this; a slot the trunk is less likely to reach costs
+/// more verification time than it saves on average. Measured with release
+/// builds on code, an essay, an explanation, JSON and sampled prose: +3.5 to
+/// +15 % tokens per second, except code (-1.8 %), whose rounds already keep
+/// 6 of 7 drafts. Without the history's scaling, 0.2 lost 5 % on code.
+constexpr float kMinDraftReach = 0.15F;
+/// Drafts at or above this probability are nearly always kept and say
+/// nothing about the lattice's calibration.
+constexpr float kCertainDraft = 0.99F;
+/// Per recorded draft, so the history follows the text within ~30 drafts.
+constexpr double kHistoryDecay = 0.97;
+/// Pseudo-counts that start the ratio at 1.
+constexpr double kHistoryPrior = 2.0;
+
+/// Drafts kept for verification: at least one, then while the cumulative
+/// scaled probability stays at or above kMinDraftReach.
+std::size_t DraftsWorthVerifying(const std::vector<float>& probabilities,
+                                 const DraftHistory& history) {
+  const auto scale = static_cast<float>((history.kept + kHistoryPrior) /
+                                        (history.predicted + kHistoryPrior));
+  float reach = 1.0F;
+  std::size_t keep = 0;
+  for (const float p : probabilities) {
+    reach *= std::min(1.0F, p * scale);
+    if (keep > 0 && reach < kMinDraftReach)
+      break;
+    ++keep;
+  }
+  return keep;
+}
+
+}  // namespace
+
 bool SpeculativeStep(Session& session, sampling::SamplerState& sampler,
-                     Frontier& frontier, std::uint32_t max_tokens,
+                     Frontier& frontier, DraftHistory& history,
+                     std::uint32_t max_tokens,
                      const std::function<bool(std::int32_t)>& is_stop,
                      bool keep_rows, SpeculativeRound* out,
                      std::string* error_msg) {
@@ -38,6 +77,7 @@ bool SpeculativeStep(Session& session, sampling::SamplerState& sampler,
     return fail("the session context is full");
 
   std::vector<std::int32_t> drafts;
+  std::vector<float> probabilities;
   DraftContext* draft = session.draft();
   const std::uint32_t room = session.MaxContext() - session.Position();
   if (draft != nullptr && max_tokens > 1 && room > 1 &&
@@ -45,7 +85,8 @@ bool SpeculativeStep(Session& session, sampling::SamplerState& sampler,
     DraftLattice lattice;
     if (!draft->Draft(first, session.Position(), &lattice, {}, error_msg))
       return false;
-    drafts = lattice.Walk(std::min(max_tokens - 1, room - 1));
+    drafts = lattice.Walk(std::min(max_tokens - 1, room - 1), &probabilities);
+    drafts.resize(DraftsWorthVerifying(probabilities, history));
   }
   if (drafts.empty()) {
     const std::int32_t one[] = {first};
@@ -91,6 +132,17 @@ bool SpeculativeStep(Session& session, sampling::SamplerState& sampler,
   }
   out->drafted = static_cast<std::uint32_t>(drafts.size());
   out->accepted = static_cast<std::uint32_t>(out->tokens.size()) - 1;
+  // The verified drafts: every accepted one and the first rejected one; a
+  // stop token ends the round without a rejection.
+  for (std::size_t i = 0; i < drafts.size() && i <= out->accepted; ++i) {
+    if (i == out->accepted && out->stop)
+      break;
+    if (probabilities[i] >= kCertainDraft)
+      continue;
+    history.kept =
+        kHistoryDecay * history.kept + (i < out->accepted ? 1.0 : 0.0);
+    history.predicted = kHistoryDecay * history.predicted + probabilities[i];
+  }
   if (!session.Commit(kept, error_msg))
     return false;
   const auto next =

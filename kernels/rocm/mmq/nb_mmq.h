@@ -41,6 +41,10 @@ void nb_mmq_release_stream(hipStream_t stream);
 int nb_mmq_dense(int weight_type, const void* W, const float* X, float* out,
                  int M, int N, int K, hipStream_t stream);
 
+// nb_mmq_dense on the tiled kernels for every N.
+int nb_mmq_dense_tiled(int weight_type, const void* W, const float* X,
+                       float* out, int M, int N, int K, hipStream_t stream);
+
 // Dense matmul for N <= 8 on activations the caller already quantized:
 //   out[col * M + row] = scale * sum_k W[row, k] * Xq[col, k]
 //                        (+ bias[col * M + row])

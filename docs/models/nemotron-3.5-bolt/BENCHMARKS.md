@@ -43,6 +43,34 @@ without drafting.
 
 ![Single user, LiLiCorr](artifacts/charts/single-lilicorr.svg)
 
+## Drafting changes in 0.2.2
+
+Decode rates with LiLiCorr from the command line, in tokens per second:
+`gufo prompt -v` for 512 tokens and `gufo bench -p 0 -n 256 -r 2`, release
+builds on Gufo `0e2de43e`. "0.2.1" is the released extension; "expert
+kernels" adds the BF16 and per-expert IQ2_XXS products for draft
+verification; "adaptive" also cuts rounds where the chance of reaching a
+draft falls below 15 %. Each pair ran in ABBA order (mean of the runs) under
+a clean `machine-lock perf`, November 10 and 11, 2026; profile
+`performance`, package power 92 to 94 W on average (peaks 119 W), GPU at
+about 2.4 GHz. Greedy outputs are identical across all three builds.
+
+| Workload | 0.2.1 | Expert kernels | Adaptive |
+| --- | ---: | ---: | ---: |
+| Fibonacci function (code), greedy | 105.3 | 111.4 | 109.6 |
+| Lighthouse essay, greedy | 48.5 | 51.7 | 59.3 |
+| Lighthouse essay, temperature 1, top-p 0.95 | | 49.9 | 56.1 |
+| TCP congestion control explanation, greedy | | 68.2 | 71.2 |
+| JSON schema and record, greedy | | 72.4 | 74.8 |
+| `gufo bench` tg256, greedy | 86.5 | 91.9 | 97.0 |
+| `gufo bench` tg256, temperature 1, top-p 0.95 | 41.4 | 44.4 | 51.4 |
+
+Autoregressive decoding (`gufo bench` tg256) stays at 36.6 tokens per second.
+The cost of a round grows by about 2.9 ms per drafted token over a fixed
+42 ms (drafting, a one-token pass and the round's overhead), so code, which
+keeps 6 of 7 drafts, gains little from shorter rounds, and prose, which
+keeps 2, gains most.
+
 ## Images
 
 Time to the first token of a prompt with one image: a unique system message

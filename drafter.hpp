@@ -61,8 +61,12 @@ struct DraftLattice {
   std::vector<float> scores;
 
   /// llama.cpp's greedy walk: the best first candidate, then at each slot
-  /// the best successor of the previous choice; at most `max_tokens`.
-  [[nodiscard]] std::vector<std::int32_t> Walk(std::uint32_t max_tokens) const;
+  /// the best successor of the previous choice; at most `max_tokens`. With
+  /// `probabilities`, also each walked transition's softmax probability
+  /// among its slot's candidates.
+  [[nodiscard]] std::vector<std::int32_t> Walk(
+      std::uint32_t max_tokens,
+      std::vector<float>* probabilities = nullptr) const;
 };
 
 /// Per-sequence drafter state on the device: the drafter layers' K/V rings

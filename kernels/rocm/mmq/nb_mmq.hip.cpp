@@ -221,6 +221,26 @@ extern "C" int nb_mmq_dense(int weight_type, const void * W, const float * X, fl
     return dense_tiled(tag, *ctx, cc, type, W, X, out, M, N, K, stream);
 }
 
+extern "C" int nb_mmq_dense_tiled(int weight_type, const void * W, const float * X, float * out,
+                                  int M, int N, int K, hipStream_t stream) {
+    using namespace nb_mmq;
+    static const char * tag = "nb_mmq_dense_tiled";
+    if (!supported_type(weight_type)) {
+        fprintf(stderr, "%s: unsupported weight type %d\n", tag, weight_type);
+        return -1;
+    }
+    if (!W || !X || !out || M <= 0 || N <= 0 || K <= 0 || K % 256 != 0) {
+        fprintf(stderr, "%s: bad arguments M=%d N=%d K=%d\n", tag, M, N, K);
+        return -1;
+    }
+    const int dev = nb_ggml_hip_get_device();
+    nb_ggml_hip_context * ctx = get_ctx_for_device(dev);
+    if (!ctx) return -1;
+    nb_pool_set_stream(stream);
+    return dense_tiled(tag, *ctx, nb_ggml_hip_info().devices[dev].cc, (ggml_type) weight_type, W,
+                       X, out, M, N, K, stream);
+}
+
 extern "C" int nb_mmq_dense_q8_1(int weight_type, const void * W, const void * Xq,
                                   float scale, const float * bias, float * out, int M, int N,
                                   int K, hipStream_t stream) {

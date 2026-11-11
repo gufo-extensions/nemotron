@@ -85,8 +85,11 @@ std::size_t Drafter::ResidentBytes() const noexcept {
   return device_->bytes;
 }
 
-std::vector<std::int32_t> DraftLattice::Walk(std::uint32_t max_tokens) const {
+std::vector<std::int32_t> DraftLattice::Walk(
+    std::uint32_t max_tokens, std::vector<float>* probabilities) const {
   std::vector<std::int32_t> out;
+  if (probabilities != nullptr)
+    probabilities->clear();
   const std::uint32_t n = std::min(max_tokens, slots);
   std::uint32_t prev = 0;
   for (std::uint32_t s = 0; s < n; ++s) {
@@ -95,6 +98,12 @@ std::vector<std::int32_t> DraftLattice::Walk(std::uint32_t max_tokens) const {
                : scores.data() + top_k + ((s - 1) * top_k + prev) * top_k;
     prev = static_cast<std::uint32_t>(std::max_element(row, row + top_k) - row);
     out.push_back(candidates[s * top_k + prev]);
+    if (probabilities != nullptr) {
+      float sum = 0.0F;
+      for (std::uint32_t k = 0; k < top_k; ++k)
+        sum += std::exp(row[k] - row[prev]);
+      probabilities->push_back(1.0F / sum);
+    }
   }
   return out;
 }

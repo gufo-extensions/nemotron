@@ -397,6 +397,23 @@ foreach(_gufo_nemotron_probe runtime drafter vision)
   endif()
 endforeach()
 
+# Short-chunk product timings at the model's shapes, built on request.
+gufo_extension_target(
+  NAME nemotron_kernel_bench
+  SOURCES
+    tests/kernel_bench.cpp
+  LINK_LIBRARIES
+    gufo_nemotron_hip
+    gufo_nemotron_mmq
+    gufo_nemotron
+    gufo_ext_runtime
+    hip::host
+    ${_gufo_nemotron_test_libs}
+)
+if(TARGET nemotron_kernel_bench)
+  set_target_properties(nemotron_kernel_bench PROPERTIES EXCLUDE_FROM_ALL ON)
+endif()
+
 install(FILES
   "${GUFO_EXTENSION_BUILD_ROOT}/LICENSE"
   "${GUFO_EXTENSION_BUILD_ROOT}/THIRD_PARTY_NOTICES.md"

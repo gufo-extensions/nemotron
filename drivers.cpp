@@ -193,6 +193,7 @@ void Generate(const ext::TextPromptOptions& opt, const Model& model,
           : std::min(opt.draft_tokens, model.drafter()->config().Slots());
   std::size_t generated = 0;
   std::size_t rounds = 0, drafted = 0, accepted = 0;
+  DraftHistory draft_history;
   const auto is_stop = [&tokenizer](std::int32_t token) {
     return tokenizer.IsStop(static_cast<TokenId>(token));
   };
@@ -200,8 +201,8 @@ void Generate(const ext::TextPromptOptions& opt, const Model& model,
     const auto budget = static_cast<std::uint32_t>(std::min<std::size_t>(
         opt.max_tokens - generated, std::size_t{draft_tokens} + 1));
     SpeculativeRound round;
-    if (!SpeculativeStep(session, sampler, frontier, budget, is_stop, false,
-                         &round, &error))
+    if (!SpeculativeStep(session, sampler, frontier, draft_history, budget,
+                         is_stop, false, &round, &error))
       throw std::runtime_error("decode failed: " + error);
     rounds += round.drafted != 0;
     drafted += round.drafted;
@@ -395,8 +396,9 @@ int RunNemotronBench(const ext::TextBenchOptions& opt,
     {
       sampling::SamplerState sampler(opt.sampling);
       SpeculativeRound round;
-      require(SpeculativeStep(*session, sampler, frontier, draft_tokens + 1,
-                              never, false, &round, &error));
+      DraftHistory draft_history;
+      require(SpeculativeStep(*session, sampler, frontier, draft_history,
+                              draft_tokens + 1, never, false, &round, &error));
     }
     std::cout << "| model | test | depth | repetition | tokens/s | seconds "
                  "|\n| :-- | :-- | --: | --: | --: | --: |\n";
@@ -426,14 +428,15 @@ int RunNemotronBench(const ext::TextBenchOptions& opt,
           require(session->Append(fill(1), frontier.logits, &error));
           frontier.head.candidates.clear();
           sampling::SamplerState sampler(opt.sampling);
+          DraftHistory draft_history;
           std::size_t generated = 0;
           const auto start = Clock::now();
           while (generated < n) {
             SpeculativeRound round;
             const auto budget = static_cast<std::uint32_t>(
                 std::min<std::size_t>(n - generated, draft_tokens + 1));
-            require(SpeculativeStep(*session, sampler, frontier, budget, never,
-                                    false, &round, &error));
+            require(SpeculativeStep(*session, sampler, frontier, draft_history,
+                                    budget, never, false, &round, &error));
             generated += round.tokens.size();
           }
           const double dt = Seconds(start);

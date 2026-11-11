@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "nemotron",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "api_version": ">= 0.2.24",
   "depends": [],
   "platforms": ["linux"],
@@ -30,7 +30,8 @@
     "nemotron_vision_encoder_test": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_runtime_probe": { "requires": ["hip", "testing"], "role": "test" },
     "nemotron_drafter_probe": { "requires": ["hip", "testing"], "role": "test" },
-    "nemotron_vision_probe": { "requires": ["hip", "testing"], "role": "test" }
+    "nemotron_vision_probe": { "requires": ["hip", "testing"], "role": "test" },
+    "nemotron_kernel_bench": { "requires": ["hip", "testing"], "role": "test" }
   },
   "providers": [
     {

@@ -217,10 +217,11 @@ void CheckDrafter(nb::Model& model, const std::vector<std::int32_t>& prompt,
   std::vector<std::int32_t> spec;
   std::size_t accepted = 0;
   std::size_t rounds = 0;
+  nb::DraftHistory history;
   while (spec.size() < kTokens) {
     nb::SpeculativeRound round;
     Require(nb::SpeculativeStep(
-                *e, sampler, frontier,
+                *e, sampler, frontier, history,
                 static_cast<std::uint32_t>(kTokens - spec.size()),
                 [](std::int32_t) { return false; }, false, &round, &error),
             "round: " + error);

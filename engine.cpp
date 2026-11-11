@@ -159,6 +159,10 @@ struct Session::State {
   Buffer<__half> h16, y16;
   Buffer<float> router, weights, latent, up, down, acc, shared_up, shared;
   Buffer<std::int32_t> ids;
+  /// BF16 activations of the expert products of chunks of 2 to
+  /// kGemvMaxTokens tokens: h and the latent rows, and the up products'
+  /// outputs, which feed the down products.
+  Buffer<std::uint16_t> h_bf16, latent_bf16, shared_up_bf16, up_bf16;
   /// Prefill expert routing for the IQ2_XXS matrix products (gemm.hpp).
   Buffer<std::int32_t> route_cursor, route_order, route_count;
   Buffer<int4> route_tiles;
@@ -250,6 +254,8 @@ bool AllocateChunk(Session::State& st, const Config& c,
                  static_cast<std::uint32_t>(device.layers()[il].num_experts));
   }
   const std::size_t H = c.hidden_size;
+  const std::size_t G =
+      std::min<std::size_t>(T, static_cast<std::size_t>(rocm::kGemvMaxTokens));
   std::uint32_t max_used = 0;
   for (auto u : c.experts_used)
     max_used = std::max(max_used, u);
@@ -275,7 +281,10 @@ bool AllocateChunk(Session::State& st, const Config& c,
       st.down.Allocate(T * max_used * c.latent_size) &&
       st.acc.Allocate(T * c.latent_size) &&
       st.shared_up.Allocate(T * c.shared_expert_ff) &&
-      st.shared.Allocate(T * H) &&
+      st.shared.Allocate(T * H) && st.h_bf16.Allocate(G * H) &&
+      st.latent_bf16.Allocate(G * c.latent_size) &&
+      st.shared_up_bf16.Allocate(G * c.shared_expert_ff) &&
+      st.up_bf16.Allocate(G * max_used * max_ff) &&
       st.xq.Allocate(static_cast<std::size_t>(rocm::kGemvMaxTokens) *
                      std::max<std::size_t>(H, c.ssm_inner_size) / 32 *
                      rocm::kQ8_1BlockBytes) &&
@@ -695,6 +704,11 @@ private:
     const int ff = l.expert_ff;
     const int shared_ff = static_cast<int>(c_.shared_expert_ff);
     const bool short_chunk = n <= rocm::kGemvMaxTokens;
+    // Several tokens run the expert products on BF16 activations: the
+    // shared expert for exactly n rows, the routed experts once per expert
+    // for all the slots that chose it. One token keeps the staged kernels.
+    const bool bf16 = short_chunk && n > 1;
+    const bool tiled = bf16 && n * used <= rocm::kRouteShortSlots;
     if (short_chunk) {
       // The shared expert depends only on h; it overlaps the router, the
       // routed experts and their small kernels on the side stream.
@@ -704,15 +718,24 @@ private:
       s.grid = m_.iq2xxs_grid();
       s.n_tokens = n;
       s.weights = l.up_shexp.data;
-      s.x = st_.h.data;
-      s.out = st_.shared_up.data;
       s.rows = shared_ff;
       s.cols = H;
       s.relu2 = true;
+      if (bf16) {
+        Ok(rocm::ToBf16(st_.h.data, st_.h_bf16.data,
+                        static_cast<std::size_t>(n) * H, st_.side));
+        s.x_bf16 = st_.h_bf16.data;
+        s.out_bf16 = st_.shared_up_bf16.data;
+      } else {
+        s.x = st_.h.data;
+        s.out = st_.shared_up.data;
+      }
       Ok(rocm::Iq2xxsGemv(s, st_.side));
       // Nothing else touches the residual stream until the join.
       s.weights = l.down_shexp.data;
       s.x = st_.shared_up.data;
+      s.x_bf16 = bf16 ? st_.shared_up_bf16.data : nullptr;
+      s.out_bf16 = nullptr;
       s.out = st_.x.data;
       s.rows = H;
       s.cols = shared_ff;
@@ -757,9 +780,20 @@ private:
       e.rows = ff;
       e.cols = latent;
       e.relu2 = true;
+      if (tiled) {
+        Ok(rocm::ToBf16(st_.latent.data, st_.latent_bf16.data,
+                        static_cast<std::size_t>(n) * latent, st_.stream));
+        Ok(rocm::Iq2xxsRouteShort(st_.ids.data, n * used, st_.route,
+                                  st_.stream));
+        e.x_bf16 = st_.latent_bf16.data;
+        e.route = &st_.route;
+        e.out_bf16 = st_.up_bf16.data;
+      }
       Ok(rocm::Iq2xxsGemv(e, st_.stream));
       e.weights = l.down_exps.data;
       e.x = st_.up.data;
+      e.x_bf16 = tiled ? st_.up_bf16.data : nullptr;
+      e.out_bf16 = nullptr;
       e.x_per_slot = true;
       e.out = st_.down.data;
       e.rows = latent;

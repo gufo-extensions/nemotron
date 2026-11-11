@@ -20,6 +20,16 @@ struct Frontier {
   LogitHead head;
 };
 
+/// How the trunk has accepted the drafts the lattice was unsure about, in
+/// one request: decayed sums of the kept drafts and of the lattice's
+/// probabilities for them. The lattice's probabilities track acceptance on
+/// average but not per text (code keeps uncertain drafts about twice as
+/// often as prose), so rounds scale them by this ratio.
+struct DraftHistory {
+  double kept{0.0};
+  double predicted{0.0};
+};
+
 struct SpeculativeRound {
   /// Emitted tokens; the first was drawn from the incoming row.
   std::vector<std::int32_t> tokens;
@@ -35,7 +45,10 @@ struct SpeculativeRound {
 /// from; for random sampling the session summarizes the rows on the device,
 /// so draws read a few candidates instead of the vocabulary. The first
 /// token comes from `sampler`; the drafter proposes up to max_tokens - 1
-/// more and the trunk verifies them in one pass. Each draft is kept while
+/// more, of which the round keeps the leading ones likely enough to be
+/// accepted (at least one) by the lattice's probabilities scaled with
+/// `history`, and the trunk verifies them in one pass; `history` then
+/// records the verified drafts. Each draft is kept while
 /// the sampler, given the trunk's row before it, draws that same draft, so
 /// the emitted tokens follow the trunk's own distribution. On the first
 /// mismatch the trunk's draw stays pending in the sampler (DeferSample) and
@@ -45,8 +58,9 @@ struct SpeculativeRound {
 /// max_tokens == 1, the round is one ordinary decode step.
 [[nodiscard]] bool SpeculativeStep(
     Session& session, sampling::SamplerState& sampler, Frontier& frontier,
-    std::uint32_t max_tokens, const std::function<bool(std::int32_t)>& is_stop,
-    bool keep_rows, SpeculativeRound* out, std::string* error_msg = nullptr);
+    DraftHistory& history, std::uint32_t max_tokens,
+    const std::function<bool(std::int32_t)>& is_stop, bool keep_rows,
+    SpeculativeRound* out, std::string* error_msg = nullptr);
 
 }  // namespace gufo::models::nemotron
 

@@ -40,8 +40,11 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
   For top-k sampling the GPU summarizes each row, so the host sorts a few
   candidates instead of the vocabulary; other settings sample the full row.
 - NVIDIA's LiLiCorr drafter is a DFlash drafter, so it loads with
-  `--speculative dflash2 --dflash-model`. Each round drafts a fixed 7 tokens
-  and the trunk verifies them in one pass.
+  `--speculative dflash2 --dflash-model`. Each round drafts 7 tokens and the
+  trunk verifies them in one pass, up to where the chance of reaching a
+  draft falls below 15 % (at least one draft): the drafter's lattice gives
+  that chance, scaled by how the request's text has accepted its uncertain
+  drafts so far.
   A verified row equals decoding its token alone, so greedy output with the
   drafter equals greedy output without it.
 - Concurrent requests decode together, one token each, in batches of up to
@@ -123,6 +126,11 @@ its logits with llama.cpp's.
 In a `gpu-test` build, `nemotron_kernel_ops_test`, `nemotron_gemv_ops_test`,
 `nemotron_drafter_ops_test` and `nemotron_mmq_ops_test` check the HIP kernels
 against CPU evaluations of the same formulas (label `gpu`).
+`nemotron_kernel_bench` (built on request) times the trunk's products at the
+model's shapes for one to eight tokens, on random weights;
+`nemotron_runtime_probe --verify-sweep` times draft rounds by their length
+and `--draft-stats` records the lattice's probabilities against the trunk's
+acceptance.
 `nemotron_runtime_test` (labels `external-model`, `slow`) loads the released
 files and checks sessions: one-token decode against prefill, snapshots,
 batched decoding and, with the drafter, draft-and-verify rounds against
@@ -143,12 +151,21 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.2.2 | `0e2de43e` | 0.2.25 |
 | 0.2.1 | `0e2de43e` | 0.2.25 |
 | 0.2.0 | `5f9612c3` | 0.2.16 |
 | 0.1.0 | `5f9612c3` | 0.2.16 |
 
 ## Release history
 
+- 0.2.2 (2026-11-11): draft verification and batched decoding run the
+  IQ2_XXS experts on BF16 activations without staging, the routed ones once
+  per expert for all tokens of a block that chose it; results stay
+  bit-identical to one-token decoding (LiLiCorr decoding 6 to 7 % faster,
+  greedy and sampled; autoregressive decoding unchanged). Rounds verify only
+  the drafts likely enough to be accepted: 3 to 16 % faster on prose,
+  explanations and JSON, greedy and sampled, 2 % slower on code, whose
+  rounds keep 6 of 7 drafts anyway.
 - 0.2.1 (2026-11-10): builds against Gufo `0e2de43e`, whose cache retention
   lets the full functional run pass `sampling-defaults` and `cache-edits`.
   Gufo now ignores `--draft-tokens` and `--draft-policy`; each round drafts

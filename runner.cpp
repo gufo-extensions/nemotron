@@ -46,6 +46,8 @@ public:
   /// The host copy of the frontier's logits and, when the device summarized
   /// them, their head.
   Frontier frontier;
+  /// How this conversation's text has accepted drafts.
+  DraftHistory draft_history;
   /// The host copy matches the session's frontier.
   bool logits_ready{false};
   /// The head filter of the request decoding from this state, for the
@@ -224,6 +226,9 @@ public:
         // No prompt-state admission charge: every session allocates its
         // K/V rows for the whole context up front, so a prompt commits no
         // memory of its own.
+        .prompt_state_bytes_per_token = std::nullopt,
+        .prompt_admission_budget_bytes = std::nullopt,
+        .prompt_admission_available_bytes = {},
     };
   }
 
@@ -578,8 +583,8 @@ public:
     sampling::SamplerState working = sampler;
     SpeculativeRound round;
     std::string error;
-    if (!SpeculativeStep(session, working, s.frontier, budget, is_stop,
-                         logprobs.has_value(), &round, &error)) {
+    if (!SpeculativeStep(session, working, s.frontier, s.draft_history, budget,
+                         is_stop, logprobs.has_value(), &round, &error)) {
       s.logits_ready = false;
       throw std::runtime_error("Nemotron draft round failed: " + error);
     }
