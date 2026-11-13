@@ -3,9 +3,10 @@
 A community [Gufo](https://github.com/gufo-org/gufo) extension for NVIDIA's
 Nemotron-H models on AMD Strix Halo (`gfx1151`).
 
-> **Status:** 0.2.0 adds image input through NVIDIA's vision
-> projector. Text generation runs through `gufo serve`, `prompt`, `chat` and
-> `bench`, with LiLiCorr drafting and Gufo's continuation cache. See
+> **Status:** 0.3.0 builds against Gufo 0.34.0 (extension API 0.3).
+> Text generation runs through `gufo serve`, `prompt`, `chat` and `bench`,
+> with LiLiCorr drafting, Gufo's continuation cache and image input through
+> NVIDIA's vision projector. See
 > [quality](docs/models/nemotron-3.5-bolt/QUALITY.md),
 > [benchmarks](docs/models/nemotron-3.5-bolt/BENCHMARKS.md) and the known
 > limits below.
@@ -104,7 +105,9 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
 
 ## Build
 
-Compile the extension into a Gufo source build:
+Compile the extension into a Gufo source build with extension API 0.3
+(Gufo 0.34.0 or a later 0.3 release; `flake.nix` pins the revision it was
+built and tested with):
 
 ```sh
 cmake --preset release -DGUFO_EXTENSION_DIRS=/absolute/path/to/nemotron
@@ -163,6 +166,7 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.3.0 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.2.3 | `0e2de43e` | 0.2.25 |
 | 0.2.2 | `0e2de43e` | 0.2.25 |
 | 0.2.1 | `0e2de43e` | 0.2.25 |
@@ -171,6 +175,10 @@ compares image answers with llama.cpp's server.
 
 ## Release history
 
+- 0.3.0 (2026-11-13): builds against Gufo 0.34.0 (`2845939b`) with
+  extension API 0.3; Gufo releases with API 0.2 (0.33 and earlier) no longer
+  accept it. The extension's code is unchanged; on Gufo 0.34.0 prompts run
+  2 to 3 % faster than with 0.2.3 and decoding 0.5 % faster.
 - 0.2.3 (2026-11-11): prompt passes beside decoding sessions split into
   layer groups, and image encoding pauses for them, so other sessions wait
   at most about 0.6 s at a time instead of 2.1 s (long prompts) and 4.5 s

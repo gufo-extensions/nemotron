@@ -13,16 +13,16 @@
       "gpuDriver": "amdgpu",
       "gpuName": "Radeon 8060S Graphics",
       "gpuPciId": "1002:1586",
-      "kernelRelease": "7.0.0-42-generic",
+      "kernelRelease": "7.0.0-43-generic",
       "memoryTotalBytes": 131738566656,
       "memoryType": "LPDDR5X (Unified)",
       "rocmVersion": "10.1.0",
       "schemaVersion": "1.0.0"
     },
-    "fingerprintId": "be97b751d981f1cbdadd3a3d1b5c0e57b7b38275f8c949ff69ffdae012165387",
+    "fingerprintId": "d8c2112a0c168bfcffce3782fd9620bdd6b3e327488c6d60587ae0c2c4519293",
     "schemaVersion": "1.0.0"
   },
-  "measuredOn": "2026-11-09",
+  "measuredOn": "2026-11-13",
   "mode": "dflash2",
   "model": {
     "id": "Nemotron 3.5 Bolt 74B-A9B",
@@ -35,89 +35,215 @@
   "referenceName": "llama.cpp",
   "rows": {
     "0": {
-      "acceptance": 26.11,
-      "acceptance_sd": null,
-      "accepted_per_step": 1.78,
-      "accepted_per_step_sd": null,
-      "command": "gufo serve --port 51103 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 35456 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "acceptance": 48.83,
+      "acceptance_sd": 5.31,
+      "accepted_per_step": 1.72,
+      "accepted_per_step_sd": 0.46,
+      "command": "gufo-v030 serve --port 60213 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 133760 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
       "counts": [
         {
           "cache_n": 0,
           "completion_sha256": "7dd741e573ead4d606e89b57a0b3dc24c3d7247b283253a3382921dc38d708f1",
-          "draft_n": 314,
-          "draft_n_accepted": 82,
+          "draft_n": 158,
+          "draft_n_accepted": 80,
           "predicted_n": 128,
           "prompt_n": 2035
+        },
+        {
+          "cache_n": 0,
+          "completion_sha256": "36f65acdee2f126b9378597dc865021abe3242643e91907ee279ac5e40eafa90",
+          "draft_n": 168,
+          "draft_n_accepted": 72,
+          "predicted_n": 128,
+          "prompt_n": 2026
+        },
+        {
+          "cache_n": 0,
+          "completion_sha256": "6594c24ebb4ba8354278f706f795855f52cd735231cd113d0608ecb22c2931c5",
+          "draft_n": 166,
+          "draft_n_accepted": 88,
+          "predicted_n": 128,
+          "prompt_n": 2044
         }
       ],
-      "pp": 997.97,
-      "pp_sd": null,
-      "samples": 1,
-      "tg": 41.41,
-      "tg_sd": null,
+      "pp": 977.55,
+      "pp_sd": 24.02,
+      "samples": 3,
+      "tg": 51.14,
+      "tg_sd": 6.89,
+      "workload": "prose"
+    },
+    "131072": {
+      "acceptance": 46.6,
+      "acceptance_sd": 3.0,
+      "accepted_per_step": 1.41,
+      "accepted_per_step_sd": 0.44,
+      "command": "gufo-v030 serve --port 60213 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 133760 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "counts": [
+        {
+          "cache_n": 131203,
+          "completion_sha256": "7069d9568b21787948b5ae51699005f49b53a2d458069e08baf1c2463c60c8f4",
+          "draft_n": 149,
+          "draft_n_accepted": 66,
+          "predicted_n": 128,
+          "prompt_n": 2043
+        },
+        {
+          "cache_n": 131203,
+          "completion_sha256": "f09076346642631f675090a7c690ccfaac0b195c8f236c5fb5a6c4c7853fb6aa",
+          "draft_n": 168,
+          "draft_n_accepted": 84,
+          "predicted_n": 128,
+          "prompt_n": 2059
+        },
+        {
+          "cache_n": 131203,
+          "completion_sha256": "c46a7a0be5664e5618d9918f301e1c13c6675e0874c3b9e0832da3e43a0ae21f",
+          "draft_n": 156,
+          "draft_n_accepted": 71,
+          "predicted_n": 128,
+          "prompt_n": 2050
+        }
+      ],
+      "pp": 551.14,
+      "pp_sd": 3.18,
+      "samples": 3,
+      "tg": 40.9,
+      "tg_sd": 5.73,
       "workload": "prose"
     },
     "32768": {
-      "acceptance": 19.2,
-      "acceptance_sd": null,
-      "accepted_per_step": 1.29,
-      "accepted_per_step_sd": null,
-      "command": "gufo serve --port 51103 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 35456 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "acceptance": 47.89,
+      "acceptance_sd": 1.39,
+      "accepted_per_step": 1.28,
+      "accepted_per_step_sd": 0.25,
+      "command": "gufo-v030 serve --port 60213 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 133760 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
       "counts": [
         {
           "cache_n": 32766,
           "completion_sha256": "8a5179fb0a4478367e3ca010e0bce5f651ee261c75d20aa5813d53b9d1d0958b",
-          "draft_n": 375,
-          "draft_n_accepted": 72,
+          "draft_n": 149,
+          "draft_n_accepted": 69,
           "predicted_n": 128,
           "prompt_n": 2028
+        },
+        {
+          "cache_n": 32766,
+          "completion_sha256": "d55f70e27ea4105e57e9ef23d33e664424e995cdae873a1e55837a586f544487",
+          "draft_n": 161,
+          "draft_n_accepted": 78,
+          "predicted_n": 128,
+          "prompt_n": 2056
+        },
+        {
+          "cache_n": 32766,
+          "completion_sha256": "b4169a513c9ab399dbebfbb092dc1bd39f49ea51bd4f2ef357ba44117c61d8e0",
+          "draft_n": 137,
+          "draft_n_accepted": 67,
+          "predicted_n": 128,
+          "prompt_n": 2042
         }
       ],
-      "pp": 806.22,
-      "pp_sd": null,
-      "samples": 1,
-      "tg": 33.23,
-      "tg_sd": null,
+      "pp": 810.74,
+      "pp_sd": 3.52,
+      "samples": 3,
+      "tg": 43.31,
+      "tg_sd": 3.46,
+      "workload": "prose"
+    },
+    "65536": {
+      "acceptance": 50.04,
+      "acceptance_sd": 6.2,
+      "accepted_per_step": 1.71,
+      "accepted_per_step_sd": 0.18,
+      "command": "gufo-v030 serve --port 60213 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 133760 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "counts": [
+        {
+          "cache_n": 65572,
+          "completion_sha256": "15418298fdf395e710505c4f0654ee9bfb556ba117f1864d30c7fb9d320a32ec",
+          "draft_n": 147,
+          "draft_n_accepted": 84,
+          "predicted_n": 128,
+          "prompt_n": 2044
+        },
+        {
+          "cache_n": 65572,
+          "completion_sha256": "2fe743f8df315b0bad3cd28fc84dfbb956ba59a4e027754ee21150191ef02e3d",
+          "draft_n": 165,
+          "draft_n_accepted": 78,
+          "predicted_n": 128,
+          "prompt_n": 2054
+        },
+        {
+          "cache_n": 65572,
+          "completion_sha256": "1c572618cdd506ae88343a88f1089253369a120125064b05a2e6202fd62864ed",
+          "draft_n": 175,
+          "draft_n_accepted": 80,
+          "predicted_n": 128,
+          "prompt_n": 2063
+        }
+      ],
+      "pp": 691.08,
+      "pp_sd": 20.02,
+      "samples": 3,
+      "tg": 47.96,
+      "tg_sd": 3.17,
       "workload": "prose"
     },
     "8192": {
-      "acceptance": 26.95,
-      "acceptance_sd": null,
-      "accepted_per_step": 1.84,
-      "accepted_per_step_sd": null,
-      "command": "gufo serve --port 51103 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 35456 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
+      "acceptance": 47.07,
+      "acceptance_sd": 1.03,
+      "accepted_per_step": 1.57,
+      "accepted_per_step_sd": 0.19,
+      "command": "gufo-v030 serve --port 60213 --sessions 1 llm --model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf --context 133760 --served-model-name bench --think off --max-pending-per-client 8 --speculative dflash2 --dflash-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf",
       "counts": [
         {
           "cache_n": 8185,
           "completion_sha256": "24074af143b610f431a1319db76531f68e186f3b01e68a32a5aeda2f402cafd2",
-          "draft_n": 308,
-          "draft_n_accepted": 83,
+          "draft_n": 165,
+          "draft_n_accepted": 77,
           "predicted_n": 128,
           "prompt_n": 2043
+        },
+        {
+          "cache_n": 8185,
+          "completion_sha256": "3f682133dbb47909525d7ced2bc620bd6747627bacc3400b13b549bada8d0726",
+          "draft_n": 170,
+          "draft_n_accepted": 82,
+          "predicted_n": 128,
+          "prompt_n": 2046
+        },
+        {
+          "cache_n": 8185,
+          "completion_sha256": "11df90b5edc083efd17efd0a9093e43eed8bd6044f14f5892c22588a620025f2",
+          "draft_n": 162,
+          "draft_n_accepted": 75,
+          "predicted_n": 128,
+          "prompt_n": 2054
         }
       ],
-      "pp": 922.49,
-      "pp_sd": null,
-      "samples": 1,
-      "tg": 42.01,
-      "tg_sd": null,
+      "pp": 926.3,
+      "pp_sd": 1.68,
+      "samples": 3,
+      "tg": 48.31,
+      "tg_sd": 2.73,
       "workload": "prose"
     }
   },
   "schemaVersion": 1,
   "server": {
     "command": [
-      "gufo",
+      "gufo-v030",
       "serve",
       "--port",
-      "51103",
+      "60213",
       "--sessions",
       "1",
       "llm",
       "--model",
       "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf",
       "--context",
-      "35456",
+      "133760",
       "--served-model-name",
       "bench",
       "--think",
@@ -133,7 +259,7 @@
   "source": {
     "buildMode": "nix-release",
     "dirty": true,
-    "revision": "5f9612c3b19ab6676b842095bc88bb9b32da5cf0"
+    "revision": "2845939b2a7d61243d407c8816c6d42652512e50"
   },
   "table": "single-lilicorr",
   "target": "gufo"

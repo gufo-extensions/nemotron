@@ -1,0 +1,6 @@
+{
+  "single-lilicorr-repetition": {
+    "8,192": "After the 8,192- and 32,768-token prefixes Nemotron answers the repetition prompt with 8 tokens on both engines, so tg128 cannot be measured there.",
+    "32,768": "After the 8,192- and 32,768-token prefixes Nemotron answers the repetition prompt with 8 tokens on both engines, so tg128 cannot be measured there."
+  }
+}

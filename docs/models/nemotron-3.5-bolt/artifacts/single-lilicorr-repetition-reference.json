@@ -22,7 +22,7 @@
     "fingerprintId": "be97b751d981f1cbdadd3a3d1b5c0e57b7b38275f8c949ff69ffdae012165387",
     "schemaVersion": "1.0.0"
   },
-  "measuredOn": "2026-11-09",
+  "measuredOn": "2026-11-12",
   "mode": "dflash2",
   "model": {
     "id": "Nemotron 3.5 Bolt 74B-A9B",
@@ -31,16 +31,18 @@
   "notes": [
     "llama.cpp: llama-server version: 0.9.0-dev (build 12213, commit 53eb66943)",
     "pp2048/tg128; depth is a cached conversation prefix of synthetic text (8-token reply); measured turn task is recorded per row; tolerance max(32, 0.500%) on cache_n and prompt_n; actual counts per sample in rows",
-    "synthetic text: 1.174 tokens/word, template overhead 16 tokens"
+    "synthetic text: 1.174 tokens/word, template overhead 16 tokens",
+    "not measured, d8192: depth 8192: server generated 9 of 128 tokens (cache_n 8187, prompt_n 2051); either the model stopped at EOS despite the continuation request, or prefix + prompt + output exceed the table's `context`",
+    "not measured, d32768: depth 32768: server generated 9 of 128 tokens (cache_n 32775, prompt_n 2053); either the model stopped at EOS despite the continuation request, or prefix + prompt + output exceed the table's `context`"
   ],
   "referenceName": "llama.cpp",
   "rows": {
     "0": {
-      "acceptance": 37.45,
-      "acceptance_sd": null,
-      "accepted_per_step": 2.46,
-      "accepted_per_step_sd": null,
-      "command": "llama-server -m NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf -c 35456 -np 1 --port 53875 --host 127.0.0.1 --alias bench -ngl 999 -fa on --cache-reuse 0 --jinja --reasoning off --cache-ram 0 --spec-type draft-dflash --spec-draft-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf --spec-draft-ngl 999 --spec-draft-n-max 7",
+      "acceptance": 35.93,
+      "acceptance_sd": 1.42,
+      "accepted_per_step": 2.37,
+      "accepted_per_step_sd": 0.09,
+      "command": "llama-server -m NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf -c 133760 -np 1 --port 35195 --host 127.0.0.1 --alias bench -ngl 999 -fa on --cache-reuse 0 --jinja --reasoning off --cache-ram 0 --spec-type draft-dflash --spec-draft-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf --spec-draft-ngl 999 --spec-draft-n-max 7",
       "counts": [
         {
           "cache_n": 5,
@@ -49,59 +51,107 @@
           "draft_n_accepted": 91,
           "predicted_n": 128,
           "prompt_n": 2025
-        }
-      ],
-      "pp": 444.38,
-      "pp_sd": null,
-      "samples": 1,
-      "tg": 34.73,
-      "tg_sd": null,
-      "workload": "repetition"
-    },
-    "32768": {
-      "acceptance": 35.16,
-      "acceptance_sd": null,
-      "accepted_per_step": 2.37,
-      "accepted_per_step_sd": null,
-      "command": "llama-server -m NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf -c 35456 -np 1 --port 53875 --host 127.0.0.1 --alias bench -ngl 999 -fa on --cache-reuse 0 --jinja --reasoning off --cache-ram 0 --spec-type draft-dflash --spec-draft-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf --spec-draft-ngl 999 --spec-draft-n-max 7",
-      "counts": [
+        },
         {
-          "cache_n": 32775,
-          "completion_sha256": "fdbbc32db1d81039f3d4f9c01ed8bd7c49deffd8190f77f8563969eb2f5488cd",
-          "draft_n": 256,
+          "cache_n": 5,
+          "completion_sha256": "4a078df2b6e7c68d10b3a30f20a51acead0a6a8a01a0c932b4f4a568194e5813",
+          "draft_n": 252,
           "draft_n_accepted": 90,
           "predicted_n": 128,
-          "prompt_n": 2024
+          "prompt_n": 2016
+        },
+        {
+          "cache_n": 5,
+          "completion_sha256": "685c36686bbcae3dbe587bab0f6436635b3853776a1dcc7ec7c209ba2dd11387",
+          "draft_n": 257,
+          "draft_n_accepted": 89,
+          "predicted_n": 128,
+          "prompt_n": 2033
         }
       ],
-      "pp": 367.77,
-      "pp_sd": null,
-      "samples": 1,
-      "tg": 31.78,
-      "tg_sd": null,
+      "pp": 440.76,
+      "pp_sd": 1.05,
+      "samples": 3,
+      "tg": 33.7,
+      "tg_sd": 0.98,
       "workload": "repetition"
     },
-    "8192": {
-      "acceptance": 36.69,
-      "acceptance_sd": null,
-      "accepted_per_step": 2.46,
-      "accepted_per_step_sd": null,
-      "command": "llama-server -m NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf -c 35456 -np 1 --port 53875 --host 127.0.0.1 --alias bench -ngl 999 -fa on --cache-reuse 0 --jinja --reasoning off --cache-ram 0 --spec-type draft-dflash --spec-draft-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf --spec-draft-ngl 999 --spec-draft-n-max 7",
+    "131072": {
+      "acceptance": 29.1,
+      "acceptance_sd": 0.23,
+      "accepted_per_step": 1.91,
+      "accepted_per_step_sd": 0.0,
+      "command": "llama-server -m NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf -c 133760 -np 1 --port 35195 --host 127.0.0.1 --alias bench -ngl 999 -fa on --cache-reuse 0 --jinja --reasoning off --cache-ram 0 --spec-type draft-dflash --spec-draft-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf --spec-draft-ngl 999 --spec-draft-n-max 7",
       "counts": [
         {
-          "cache_n": 8187,
-          "completion_sha256": "ce05a886ab1f6d5ae1a683110f334d60a71bd63a85560ae0fb84559b53cd737b",
-          "draft_n": 248,
-          "draft_n_accepted": 91,
+          "cache_n": 131242,
+          "completion_sha256": "3e27f6fdc16c66341684269627abd4162290ee2ceefdb81e0d9133b994d8410a",
+          "draft_n": 290,
+          "draft_n_accepted": 84,
           "predicted_n": 128,
-          "prompt_n": 2040
+          "prompt_n": 2039
+        },
+        {
+          "cache_n": 131242,
+          "completion_sha256": "3e27f6fdc16c66341684269627abd4162290ee2ceefdb81e0d9133b994d8410a",
+          "draft_n": 290,
+          "draft_n_accepted": 84,
+          "predicted_n": 128,
+          "prompt_n": 2056
+        },
+        {
+          "cache_n": 131242,
+          "completion_sha256": "57c0ba2d3d7bd7ea682fdf798093cbaa1c0492e50a8f5f4af4026c19ddc93e26",
+          "draft_n": 286,
+          "draft_n_accepted": 84,
+          "predicted_n": 128,
+          "prompt_n": 2046
         }
       ],
-      "pp": 424.3,
-      "pp_sd": null,
-      "samples": 1,
-      "tg": 33.92,
-      "tg_sd": null,
+      "pp": 248.28,
+      "pp_sd": 1.82,
+      "samples": 3,
+      "tg": 23.93,
+      "tg_sd": 0.2,
+      "workload": "repetition"
+    },
+    "65536": {
+      "acceptance": 28.1,
+      "acceptance_sd": 1.77,
+      "accepted_per_step": 1.87,
+      "accepted_per_step_sd": 0.13,
+      "command": "llama-server -m NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf -c 133760 -np 1 --port 35195 --host 127.0.0.1 --alias bench -ngl 999 -fa on --cache-reuse 0 --jinja --reasoning off --cache-ram 0 --spec-type draft-dflash --spec-draft-model NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf --spec-draft-ngl 999 --spec-draft-n-max 7",
+      "counts": [
+        {
+          "cache_n": 65590,
+          "completion_sha256": "0177eb9551c63a98238c3d354b7a1647390eb2f14ff600b51cebb1b51571f427",
+          "draft_n": 296,
+          "draft_n_accepted": 84,
+          "predicted_n": 128,
+          "prompt_n": 2044
+        },
+        {
+          "cache_n": 65590,
+          "completion_sha256": "b6de7ff192677b805aabac9d4a7f8d80aeb83d849cb5ce22a9bda32dcff79b81",
+          "draft_n": 309,
+          "draft_n_accepted": 81,
+          "predicted_n": 128,
+          "prompt_n": 2051
+        },
+        {
+          "cache_n": 65590,
+          "completion_sha256": "bfc4d7b3afc9dc24b3a146e4f98fe7b71c15791ce41dddbf9bc5f055c944b73c",
+          "draft_n": 286,
+          "draft_n_accepted": 85,
+          "predicted_n": 128,
+          "prompt_n": 2058
+        }
+      ],
+      "pp": 317.53,
+      "pp_sd": 0.94,
+      "samples": 3,
+      "tg": 25.8,
+      "tg_sd": 1.03,
       "workload": "repetition"
     }
   },
@@ -112,11 +162,11 @@
       "-m",
       "NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf",
       "-c",
-      "35456",
+      "133760",
       "-np",
       "1",
       "--port",
-      "53875",
+      "35195",
       "--host",
       "127.0.0.1",
       "--alias",
@@ -145,7 +195,7 @@
   "source": {
     "buildMode": "nix-release",
     "dirty": true,
-    "revision": "5f9612c3b19ab6676b842095bc88bb9b32da5cf0"
+    "revision": "0e2de43ec01540079fbec30492b06704796d725e"
   },
   "table": "single-lilicorr-repetition",
   "target": "reference"

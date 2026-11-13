@@ -53,15 +53,17 @@
       "depths": [
         0,
         8192,
-        32768
+        32768,
+        65536,
+        131072
       ],
-      "context": 35456,
+      "context": 133760,
       "depth_tolerance": 0.005,
       "prefix": {
         "generator": "synthetic-paragraphs",
         "seed": 1
       },
-      "repetitions": 1,
+      "repetitions": 3,
       "metric": "tok/s",
       "better": "higher"
     },
@@ -74,15 +76,17 @@
       "depths": [
         0,
         8192,
-        32768
+        32768,
+        65536,
+        131072
       ],
-      "context": 35456,
+      "context": 133760,
       "depth_tolerance": 0.005,
       "prefix": {
         "generator": "synthetic-paragraphs",
         "seed": 1
       },
-      "repetitions": 1,
+      "repetitions": 3,
       "metric": "tok/s",
       "better": "higher",
       "workloads": {
