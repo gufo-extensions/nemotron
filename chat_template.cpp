@@ -1,3 +1,7 @@
+// Renders conversations as NVIDIA's Nemotron 3.5 Bolt chat template does
+// (OpenMDW-1.1, see licenses/nemotron-3.5-bolt.txt); its tool-call
+// instructions are the template's text, which comes from Qwen3-Coder's chat
+// template (Apache-2.0, see licenses/qwen3-coder.txt).
 #include "chat_template.hpp"
 
 #include <unicode/uchar.h>

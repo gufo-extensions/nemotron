@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "nemotron",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "api_version": ">= 0.3.0",
   "depends": [],
   "platforms": ["linux"],

@@ -1,3 +1,6 @@
+// The C-RADIO encoder and projector, ported from NVIDIA's Nemotron-H Omni
+// model code (Apache-2.0, see licenses/nemotron-omni.txt) to HIP kernels and
+// hipBLASLt products.
 #include "vision_encoder.hpp"
 
 #include <hip/hip_runtime.h>

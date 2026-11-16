@@ -1,3 +1,5 @@
+// Adapted from the LFM3 Gufo extension's continuation adapter
+// (gufo-org/lfm3-gufo-extension, MIT; see licenses/lfm3-gufo-extension.txt).
 #include "continuation_layout.hpp"
 
 #include <stdexcept>

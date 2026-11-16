@@ -3,7 +3,7 @@
 A community [Gufo](https://github.com/gufo-org/gufo) extension for NVIDIA's
 Nemotron-H models on AMD Strix Halo (`gfx1151`).
 
-> **Status:** 0.3.0 builds against Gufo 0.34.0 (extension API 0.3).
+> **Status:** 0.3.1 builds against Gufo 0.34.0 (extension API 0.3).
 > Text generation runs through `gufo serve`, `prompt`, `chat` and `bench`,
 > with LiLiCorr drafting, Gufo's continuation cache and image input through
 > NVIDIA's vision projector. See
@@ -166,6 +166,7 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.3.1 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.3.0 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.2.3 | `0e2de43e` | 0.2.25 |
 | 0.2.2 | `0e2de43e` | 0.2.25 |
@@ -175,6 +176,10 @@ compares image answers with llama.cpp's server.
 
 ## Release history
 
+- 0.3.1 (2026-11-16): license notices only. The chat template's text is
+  credited to NVIDIA's template (OpenMDW-1.1) and its tool-call instructions
+  to Qwen3-Coder's (Apache-2.0), and every adapted file names its source;
+  code and behavior are unchanged.
 - 0.3.0 (2026-11-13): builds against Gufo 0.34.0 (`2845939b`) with
   extension API 0.3; Gufo releases with API 0.2 (0.33 and earlier) no longer
   accept it. The extension's code is unchanged; on Gufo 0.34.0 prompts run
@@ -209,6 +214,13 @@ compares image answers with llama.cpp's server.
 MIT, see [LICENSE](LICENSE). The quantized matrix kernels are adapted from
 llama.cpp, DS4 and Gufo, the continuation adapter from the LFM3 extension,
 all MIT; the vision encoder follows NVIDIA's model code (Apache-2.0) and its
-image resizing PyTorch's (BSD-3-Clause). See
+image resizing PyTorch's (BSD-3-Clause); the chat template's text comes
+from NVIDIA's template (OpenMDW-1.1) and its tool-call instructions from
+Qwen3-Coder's (Apache-2.0). See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+This is an independent community project, not affiliated with or endorsed
+by NVIDIA or AMD. Model, product and company names belong to their owners
+and only identify the models and hardware the extension supports.
+
 Maintainer: [@mduka](https://github.com/mduka).

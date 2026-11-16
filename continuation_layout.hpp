@@ -1,3 +1,5 @@
+// Adapted from the LFM3 Gufo extension's continuation adapter
+// (gufo-org/lfm3-gufo-extension, MIT; see licenses/lfm3-gufo-extension.txt).
 #ifndef GUFO_MODELS_NEMOTRON_CONTINUATION_LAYOUT_HPP_
 #define GUFO_MODELS_NEMOTRON_CONTINUATION_LAYOUT_HPP_
 
