@@ -97,6 +97,8 @@ changes no accepted token.
   are refused.
 - The GPU operator tests (`nemotron.kernel_ops`, `gemv_ops`, `drafter_ops`,
   `mmq_ops`) compare every kernel with CPU evaluations of the same formulas.
+  `kernel_ops` also routes rows with NaN router logits: every expert id
+  stays below the expert count.
 - The tokenizer and the chat template match Hugging Face's on the golden
   fixtures in `tests/fixtures/`.
 

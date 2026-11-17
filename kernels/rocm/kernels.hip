@@ -720,6 +720,12 @@ __global__ void RouterTopKKernel(const float* logits, const float* bias,
     const int e = static_cast<int>(threadIdx.x) + r * kBlock;
     prob[r] = e < n_experts ? Sigmoid(row[e]) : 0.0F;
     sel[r] = e < n_experts ? prob[r] + bias[e] : -INFINITY;
+    // A NaN score (NaN router logits) selects as -INF: a round without a
+    // finite score left then picks expert 0 by the tie rule instead of the
+    // initial index, which the routed products would read and the route
+    // kernels write out of bounds. An all-NaN row gets NaN weights.
+    if (isnan(sel[r]))
+      sel[r] = -INFINITY;
   }
   const int lane = static_cast<int>(threadIdx.x) % kLanes;
   const int group = static_cast<int>(threadIdx.x) / kLanes;

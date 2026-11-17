@@ -3,7 +3,7 @@
 A community [Gufo](https://github.com/gufo-org/gufo) extension for NVIDIA's
 Nemotron-H models on AMD Strix Halo (`gfx1151`).
 
-> **Status:** 0.3.1 builds against Gufo 0.34.0 (extension API 0.3).
+> **Status:** 0.3.2 builds against Gufo 0.34.0 (extension API 0.3).
 > Text generation runs through `gufo serve`, `prompt`, `chat` and `bench`,
 > with LiLiCorr drafting, Gufo's continuation cache and image input through
 > NVIDIA's vision projector. See
@@ -166,6 +166,7 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.3.2 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.3.1 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.3.0 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.2.3 | `0e2de43e` | 0.2.25 |
@@ -176,6 +177,12 @@ compares image answers with llama.cpp's server.
 
 ## Release history
 
+- 0.3.2 (2026-11-17): expert routing stays in range when a token's router
+  logits are NaN. Such a row used to select an expert id past the expert
+  table, which the expert products then read and the prompt's route kernels
+  wrote out of bounds; it now selects expert 0 with NaN weights. Rows with
+  finite logits route as before. No NaN row has been observed with this
+  extension; the change keeps one from turning into a memory fault.
 - 0.3.1 (2026-11-16): license notices only. The chat template's text is
   credited to NVIDIA's template (OpenMDW-1.1) and its tool-call instructions
   to Qwen3-Coder's (Apache-2.0), and every adapted file names its source;

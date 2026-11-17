@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <numeric>
 #include <random>
 #include <span>
@@ -664,6 +665,91 @@ void TestRouting(std::mt19937& rng) {
   }
 }
 
+/// Rows with NaN router logits (one NaN in the residual stream makes the whole
+/// row NaN) must still route below n_experts: the routed products index their
+/// weights and the route kernels their counters by these ids.
+void TestRoutingNanRows(std::mt19937& rng) {
+  constexpr int kTokens = 4;
+  constexpr int kTop = 9;
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  for (int experts : {240, 512}) {
+    auto logits = Random(std::size_t(kTokens) * experts, rng, -4.0F, 4.0F);
+    const auto bias = Random(experts, rng, -0.05F, 0.05F);
+    // Row 0: every logit NaN. Row 1: three finite logits. Row 2: every other
+    // logit NaN. Row 3: none.
+    const std::vector<int> finite_one = {5, 77, experts - 1};
+    for (int e = 0; e < experts; ++e) {
+      logits[e] = nan;
+      if (std::find(finite_one.begin(), finite_one.end(), e) ==
+          finite_one.end())
+        logits[std::size_t(experts) + e] = nan;
+      if (e % 2 == 0)
+        logits[std::size_t(2) * experts + e] = nan;
+    }
+    // The selection over row t's finite logits, at most kTop of them.
+    auto top = [&](int t, std::vector<std::int32_t>& ids,
+                   std::vector<float>& weights) {
+      const float* row = logits.data() + std::size_t(t) * experts;
+      std::vector<int> order;
+      for (int e = 0; e < experts; ++e)
+        if (!std::isnan(row[e]))
+          order.push_back(e);
+      std::stable_sort(order.begin(), order.end(), [&](int x, int y) {
+        return Sigmoid(row[x]) + bias[x] > Sigmoid(row[y]) + bias[y];
+      });
+      order.resize(std::min<std::size_t>(order.size(), kTop));
+      float sum = 0;
+      for (int e : order)
+        sum += Sigmoid(row[e]);
+      for (int e : order) {
+        ids.push_back(e);
+        weights.push_back(Sigmoid(row[e]) / std::max(sum, 6.103515625e-5F) *
+                          5.0F);
+      }
+    };
+    auto* d_logits = Device(logits);
+    auto* d_bias = Device(bias);
+    auto* d_ids = Device(std::vector<std::int32_t>(kTokens * kTop));
+    auto* d_w = Device(std::vector<float>(kTokens * kTop));
+    Hip(k::RouterTopK(d_logits, d_bias, experts, kTokens, kTop, true, 5.0F,
+                      d_ids, d_w, nullptr),
+        "router");
+    const auto ids = Host(d_ids, std::size_t(kTokens) * kTop);
+    const auto w = Host(d_w, std::size_t(kTokens) * kTop);
+    const std::string at = " (" + std::to_string(experts) + " experts)";
+    Check(std::all_of(ids.begin(), ids.end(),
+                      [&](std::int32_t id) { return id >= 0 && id < experts; }),
+          "router ids of NaN rows stay below n_experts" + at);
+    Check(std::all_of(ids.begin(), ids.begin() + kTop,
+                      [](std::int32_t id) { return id == 0; }),
+          "an all-NaN row picks expert 0" + at);
+    Check(std::all_of(w.begin(), w.begin() + kTop,
+                      [](float x) { return std::isnan(x); }),
+          "an all-NaN row has NaN weights" + at);
+    std::vector<std::int32_t> want_ids;
+    std::vector<float> want_w;
+    top(1, want_ids, want_w);
+    Check(std::equal(want_ids.begin(), want_ids.end(), ids.begin() + kTop) &&
+              std::all_of(ids.begin() + kTop + 3, ids.begin() + 2 * kTop,
+                          [](std::int32_t id) { return id == 0; }),
+          "a row with three finite logits picks them, then expert 0" + at);
+    for (int t : {2, 3}) {
+      want_ids.clear();
+      want_w.clear();
+      top(t, want_ids, want_w);
+      const std::vector<std::int32_t> got_ids(ids.begin() + t * kTop,
+                                              ids.begin() + (t + 1) * kTop);
+      const std::vector<float> got_w(w.begin() + t * kTop,
+                                     w.begin() + (t + 1) * kTop);
+      Check(got_ids == want_ids && RelErr(got_w, want_w) < 1e-6,
+            "row " + std::to_string(t) + " routes over its finite logits" + at);
+    }
+    for (void* p : {static_cast<void*>(d_logits), static_cast<void*>(d_bias),
+                    static_cast<void*>(d_ids), static_cast<void*>(d_w)})
+      Hip(hipFree(p), "free");
+  }
+}
+
 /// A random-sampling configuration; SamplingConfig has members without
 /// defaults, so designated initializers would leave them to the compiler.
 gufo::sampling::SamplingConfig Sampling(float temperature, int top_k,
@@ -1039,6 +1125,7 @@ int main() {
   TestBatchRows(rng);
   TestRouterLogits(rng);
   TestRouting(rng);
+  TestRoutingNanRows(rng);
   TestLogitHeads(rng);
   if (failures != 0) {
     std::fprintf(stderr, "%d check(s) failed\n", failures);

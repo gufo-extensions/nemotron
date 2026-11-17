@@ -164,7 +164,10 @@ hipError_t AttentionShortRows(const float* q, const __half* const* k_caches,
 
 /// Sigmoid scores, selection by score + bias, top-k ids and weights of the
 /// raw scores, optionally normalized (sum clamped at 6.103515625e-5), times
-/// `scale`. Ties choose the lower expert index. n_experts <= 512.
+/// `scale`. Ties choose the lower expert index. n_experts <= 512. Every id is
+/// below n_experts, also for rows with NaN logits: a NaN score selects as
+/// -INF, so a row with fewer than k finite scores fills its remaining rounds
+/// with expert 0.
 hipError_t RouterTopK(const float* logits, const float* bias, int n_experts,
                       int n_tokens, int k, bool normalize, float scale,
                       std::int32_t* ids, float* weights, hipStream_t stream);
