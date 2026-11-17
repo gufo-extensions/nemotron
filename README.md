@@ -3,7 +3,8 @@
 A community [Gufo](https://github.com/gufo-org/gufo) extension for NVIDIA's
 Nemotron-H models on AMD Strix Halo (`gfx1151`).
 
-> **Status:** 0.3.2 builds against Gufo 0.34.0 (extension API 0.3).
+> **Status:** 0.4.0 builds against Gufo 0.35.0 (extension API 0.3.11 or
+> later).
 > Text generation runs through `gufo serve`, `prompt`, `chat` and `bench`,
 > with LiLiCorr drafting, Gufo's continuation cache and image input through
 > NVIDIA's vision projector. See
@@ -18,7 +19,13 @@ Nemotron-H models on AMD Strix Halo (`gfx1151`).
 | `nemotron35-bolt` | Nemotron 3.5 Bolt 74B-A9B | NVIDIA's QAD 24 GB GGUF; optionally its LiLiCorr drafter GGUF and its vision projector GGUF (`mmproj-…`) |
 
 The weights aren't part of this repository. They're published by NVIDIA under
-its own license; read it before you download them.
+its own license (OpenMDW-1.1); read it before you download them.
+
+`gufo model install nemotron-3.5-bolt` downloads the trunk, the drafter and
+the projector at the revisions the extension was tested with (`e0fecb69`,
+LiLiCorr `182d2987`) and checks their SHA-256 against `models.lock.json`;
+it prints the paths for `--dflash-model` and `--mmproj`, and
+`--model nemotron-3.5-bolt` names the trunk.
 
 ## Use
 
@@ -105,9 +112,9 @@ gufo serve llm --model "$MODEL" --mmproj "$PROJECTOR" \
 
 ## Build
 
-Compile the extension into a Gufo source build with extension API 0.3
-(Gufo 0.34.0 or a later 0.3 release; `flake.nix` pins the revision it was
-built and tested with):
+Compile the extension into a Gufo source build with extension API 0.3.11
+or later (Gufo 0.35.0 or a later 0.3 release; `flake.nix` pins the revision
+it was built and tested with):
 
 ```sh
 cmake --preset release -DGUFO_EXTENSION_DIRS=/absolute/path/to/nemotron
@@ -166,6 +173,7 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.4.0 | `0260e116` (0.35.0) | 0.3.20 |
 | 0.3.2 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.3.1 | `2845939b` (0.34.0) | 0.3.2 |
 | 0.3.0 | `2845939b` (0.34.0) | 0.3.2 |
@@ -177,6 +185,15 @@ compares image answers with llama.cpp's server.
 
 ## Release history
 
+- 0.4.0 (2026-11-18): builds against Gufo 0.35.0 (`0260e116`) and needs
+  extension API 0.3.11; Gufo 0.34.0 no longer accepts it. Without thinking
+  the prompt ends in `<think></think>`; Gufo now drops the whitespace the
+  model writes after it, as after a `</think>` the model wrote, so the
+  extension no longer trims it from the answer itself. Answers and tool
+  calls are unchanged, and so are throughput and pauses with concurrent
+  requests
+  ([benchmarks](docs/models/nemotron-3.5-bolt/BENCHMARKS.md#gufo-0350)).
+  `gufo model install nemotron-3.5-bolt` installs the tested weights.
 - 0.3.2 (2026-11-17): expert routing stays in range when a token's router
   logits are NaN. Such a row used to select an expert id past the expert
   table, which the expert products then read and the prompt's route kernels

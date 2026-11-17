@@ -69,10 +69,6 @@ public:
   /// The head filter of the request decoding from this state, for the
   /// device summary of each next row.
   std::optional<LogitHeadFilter> head_filter;
-  /// The prompt closed reasoning itself ("<think></think>") and no answer
-  /// text has been emitted yet: whitespace the model writes first is the
-  /// separator after that block, framing rather than answer.
-  bool leading_separator{false};
   /// The current prompt's images, and the embeddings of those that prefill
   /// has reached but not yet passed, by image index.
   std::shared_ptr<const VisionPrompt> vision;
@@ -187,10 +183,6 @@ public:
       identity = process.str();
     }
     component_identity_.assign(identity.begin(), identity.end());
-    const auto close = model_->tokenizer().Encode("</think>", true);
-    if (close.size() != 1)
-      throw std::invalid_argument("Nemotron vocabulary has no </think> token");
-    thought_close_ = close.front();
     if (vision_) {
       framing_ = FindImageFraming(model_->tokenizer());
       // Embeddings depend on the projector and on the operand format.
@@ -397,10 +389,12 @@ public:
   }
   ext::InitialOutputState InitialOutputState(
       const ChatRequest& request) const override {
-    // Without thinking the prompt ends in "<think></think>".
+    // Without thinking the prompt ends in "<think></think>", and Gufo drops
+    // the separator the model writes after it, as after a "</think>" it
+    // wrote: the template continues "<think></think>\n<tool_call>".
     return ResolveChatOptions(request.reasoning).enable_thinking
                ? ext::InitialOutputState::kThought
-               : ext::InitialOutputState::kText;
+               : ext::InitialOutputState::kTextAfterThought;
   }
   std::string Decode(std::span<const TextRunnerToken> tokens) const override {
     std::string text;
@@ -417,7 +411,7 @@ public:
       throw std::logic_error("Nemotron reused prefix does not match its state");
     // A prompt served whole from the cache ends here; Prefill overrides it
     // when more of the prompt follows.
-    StartAnswer(s, !prefix.empty() && prefix.back() == thought_close_);
+    StartAnswer(s);
   }
 
   TextPrefillStep Prefill(TextRunnerState& state,
@@ -486,7 +480,7 @@ public:
     }
     s.logits_ready = decode_ready;
     if (decode_ready)
-      StartAnswer(s, prompt.back() == thought_close_);
+      StartAnswer(s);
     return {.consumed_tokens = consumed, .decode_ready = decode_ready};
   }
 
@@ -507,7 +501,7 @@ public:
     const bool stop = s.stop_at_eos() && model_->tokenizer().IsStop(token);
     return {.stop = stop,
             .token = token,
-            .piece = stop ? std::string{} : Piece(s, token),
+            .piece = stop ? std::string{} : Piece(token),
             .logprobs = sampling::CollectLogprobs(logits, token,
                                                   sampler.config().logprobs)};
   }
@@ -705,7 +699,7 @@ public:
       }
       step.selections.push_back({.stop = false,
                                  .token = token,
-                                 .piece = Piece(s, token),
+                                 .piece = Piece(token),
                                  .logprobs = std::move(token_logprobs)});
     }
     step.draft_rounds = round.drafted != 0 ? 1 : 0;
@@ -755,28 +749,13 @@ private:
     Measure(mean, seconds, mean == 0.0);
   }
 
-  /// The text of `token` in the answer. Gufo's host trims the separator after
-  /// a "</think>" the model writes, but it has no state for a block the
-  /// prompt closed, where the template continues
-  /// "<think></think>\n<tool_call>". Without this, a reply's leading newline
-  /// would reach clients as text, and a client sending it back would no longer
-  /// match the generated tokens. The tokens themselves stay as the model wrote
-  /// them.
-  std::string Piece(State& s, TextRunnerToken token) const {
-    std::string piece(model_->tokenizer().TokenBytes(token));
-    if (!s.leading_separator)
-      return piece;
-    const auto first = piece.find_first_not_of(" \t\r\n\f\v");
-    if (first == std::string::npos)
-      return {};
-    s.leading_separator = false;
-    return piece.substr(first);
+  std::string Piece(TextRunnerToken token) const {
+    return std::string(model_->tokenizer().TokenBytes(token));
   }
 
-  /// The prompt ends at the session's position; `closed_reasoning` when it
-  /// ends in "</think>". Rates of earlier requests describe other text.
-  void StartAnswer(State& s, bool closed_reasoning) const {
-    s.leading_separator = closed_reasoning;
+  /// The prompt ends at the session's position. Rates of earlier requests
+  /// describe other text.
+  void StartAnswer(State& s) const {
     s.round_rate = {};
     s.answer_start = s.session->Position();
   }
@@ -907,8 +886,6 @@ private:
   /// the first.
   mutable std::mutex pass_mutex_;
   mutable std::array<double, kMaxBatch + 1> pass_seconds_{};
-  /// "</think>", which ends the prompt when it closed reasoning itself.
-  TextRunnerToken thought_close_{0};
   cache::Identity component_identity_;
 };
 

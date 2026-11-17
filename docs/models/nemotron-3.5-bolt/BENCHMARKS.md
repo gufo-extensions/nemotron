@@ -83,6 +83,39 @@ rates were within 1 %. llama.cpp's Fibonacci answer ends after 232 to 280
 tokens depending on the run (Gufo's after 231); the rates count every
 generated token. Raw results: [both engines](artifacts/concurrency-reference.jsonl).
 
+## Gufo 0.35.0
+
+Extension 0.4.0 on Gufo 0.35.0 (`0260e116`) against 0.3.2 on Gufo 0.34.0,
+release builds with LiLiCorr (`--sessions 4 --context 32768`), servers in the
+order 0.34.0, 0.35.0, 0.35.0, 0.34.0 under a clean `machine-lock perf` on
+November 17, 2026; device profile balanced, package power 86 W on average
+while busy (peak 109 W), GPU at 2.3 GHz. Gufo 0.35.0 orders captured prompt
+passes differently and retains the cache differently; its layer groups
+beside decoders are the same. The mixes are those of
+[Concurrent requests](#concurrent-requests); tokens of all requests per
+second of wall time, mean of one run per server.
+
+| Mix | Gufo 0.34.0 (tok/s) | Gufo 0.35.0 (tok/s) | Change |
+| --- | ---: | ---: | ---: |
+| Fibonacci function alone (code) | 115.3 | 115.1 | -0.1% |
+| Lighthouse essay alone (prose) | 54.5 | 54.5 | -0.1% |
+| Fibonacci function, ring buffer class (code, code) | 89.3 | 89.1 | -0.2% |
+| Lighthouse essay, TCP explanation (prose, prose) | 57.1 | 56.9 | -0.4% |
+| Fibonacci function, lighthouse essay (code, prose) | 66.6 | 66.5 | -0.1% |
+| Code, code, JSON schema and record | 93.7 | 93.7 | -0.1% |
+| Code, code, prose, prose | 82.4 | 82.4 | +0.1% |
+
+The answers are identical on all four servers, and each request's time
+changes by less than 2 %, within the spread of one build's two runs. Beside
+a cold 4,500-word prompt (about 5,300 tokens, `decode_stalls.py`, three
+runs per server after a warm-up), the prompt took 6.41 s on 0.34.0 and
+6.42 s on 0.35.0 (medians), the streaming request's longest pause was 0.61 s
+on both, and it sent 35 chunks while the prompt ran. Both builds ran the
+two- and three-request code mixes about 2 % slower than the 0.3.0 run of
+November 13 above, the requests alone within 0.6 %. Raw results:
+[concurrent requests](artifacts/gufo-035-requests.jsonl),
+[stalls](artifacts/gufo-035-stalls.jsonl).
+
 ## Drafting changes in 0.2.2
 
 Decode rates with LiLiCorr from the command line, in tokens per second:

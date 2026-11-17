@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "name": "nemotron",
-  "version": "0.3.2",
-  "api_version": ">= 0.3.0",
+  "version": "0.4.0",
+  "api_version": ">= 0.3.11",
   "depends": [],
   "platforms": ["linux"],
   "entry": "nemotron_register",
@@ -42,6 +42,46 @@
       "speculative": ["dflash2"],
       "target": "gufo_nemotron_text",
       "entry": "nemotron_provider_register"
+    }
+  ],
+  "models": [
+    {
+      "id": "nemotron-3.5-bolt",
+      "provider": "nemotron35-bolt",
+      "license": "openmdw-1.1",
+      "description": "NVIDIA Nemotron 3.5 Bolt 74B-A9B, 24 GB GGUF, LiLiCorr drafter, vision projector",
+      "components": [
+        {
+          "role": "weights",
+          "option": "--model",
+          "install": "required",
+          "source": {
+            "hf": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF",
+            "revision": "e0fecb69cb3e5e4c5e8a056fa2aec98c78e91246"
+          },
+          "include": ["NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf"]
+        },
+        {
+          "role": "dflash",
+          "option": "--dflash-model",
+          "install": "default",
+          "source": {
+            "hf": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr-GGUF",
+            "revision": "182d2987939e12f458298b5d5f6ef98912f4ad6c"
+          },
+          "include": ["NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf"]
+        },
+        {
+          "role": "mmproj",
+          "option": "--mmproj",
+          "install": "default",
+          "source": {
+            "hf": "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF",
+            "revision": "e0fecb69cb3e5e4c5e8a056fa2aec98c78e91246"
+          },
+          "include": ["mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf"]
+        }
+      ]
     }
   ],
   "licenses": [

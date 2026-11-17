@@ -11,7 +11,9 @@ suites on November 11 on Gufo `0e2de43e` with 0.2.2, whose
 draft verification and draft lengths changed; they pass and fail as with
 0.2.1. 0.3.0, the same code built against Gufo 0.34.0 (`2845939b`,
 extension API 0.3), passed the extension's 17 tests and the same 42 text
-functional suites with the drafter on November 13.
+functional suites with the drafter on November 13, and so did 0.4.0 on Gufo
+0.35.0 (`0260e116`) on November 17, the failing suites with the same
+answers.
 
 ## ROCm runtime versus llama.cpp
 
@@ -111,8 +113,8 @@ the same 42 of 53 suites; the drafting run accepts 16,838 of 23,735 drafted
 tokens (0.2.1, which always verified 7 drafts: 16,999 of 28,097) and
 exercises drafts in `state-edges`. With 0.2.3's concurrency changes, `batch`
 and `prefill-scheduling` (which `all` leaves out) pass with the drafter;
-the full run above is 0.2.2's. 0.3.0 on Gufo 0.34.0 passes and fails the
-same suites with the drafter.
+the full run above is 0.2.2's. 0.3.0 on Gufo 0.34.0 and 0.4.0 on Gufo
+0.35.0 pass and fail the same suites with the drafter.
 
 Passed: discovery, openai-count-tokens, messages-count-tokens,
 messages-image-counts, responses, stops, structured, tool-streaming,
