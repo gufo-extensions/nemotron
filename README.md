@@ -3,7 +3,7 @@
 A community [Gufo](https://github.com/gufo-org/gufo) extension for NVIDIA's
 Nemotron-H models on AMD Strix Halo (`gfx1151`).
 
-> **Status:** 0.4.1 builds against Gufo 0.36.0 (extension API 0.3.11 or
+> **Status:** 0.4.2 builds against Gufo 0.37.0 (extension API 0.3.11 or
 > later).
 > Text generation runs through `gufo serve`, `prompt`, `chat` and `bench`,
 > with LiLiCorr drafting, Gufo's continuation cache and image input through
@@ -173,6 +173,7 @@ compares image answers with llama.cpp's server.
 
 | Extension | Gufo | Extension API |
 | --- | --- | --- |
+| 0.4.2 | `684b716a` (0.37.0) | 0.3.47 |
 | 0.4.1 | `4a7d8c6d` (0.36.0) | 0.3.42 |
 | 0.4.0 | `0260e116` (0.35.0) | 0.3.20 |
 | 0.3.2 | `2845939b` (0.34.0) | 0.3.2 |
@@ -186,6 +187,11 @@ compares image answers with llama.cpp's server.
 
 ## Release history
 
+- 0.4.2 (2026-11-26): `flake.nix` pins Gufo 0.37.0 (`684b716a`). The
+  extension's code is unchanged and still builds against Gufo 0.35.0 and
+  0.36.0. On 0.37.0 the tests pass, and so does `cache-concurrency` again,
+  whose 0.37.0 version labels its system prompts
+  ([quality](docs/models/nemotron-3.5-bolt/QUALITY.md#functional-api-suites)).
 - 0.4.1 (2026-11-24): `flake.nix` pins Gufo 0.36.0 (`4a7d8c6d`). The
   extension's code is unchanged and still builds against Gufo 0.35.0. On
   0.36.0 the tests pass, and the functional suites as on 0.35.0 except three

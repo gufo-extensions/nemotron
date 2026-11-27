@@ -14,8 +14,9 @@ extension API 0.3), passed the extension's 17 tests and the same 42 text
 functional suites with the drafter on November 13, and so did 0.4.0 on Gufo
 0.35.0 (`0260e116`) on November 17, the failing suites with the same
 answers. 0.4.1 on Gufo 0.36.0 (`4a7d8c6d`, November 24) passes the 17 tests
-and 43 of the 53 suites, whose 0.36.0 versions changed three of them (see
-[below](#functional-api-suites)).
+and 43 of the 53 suites, whose 0.36.0 versions changed three of them, and
+0.4.2 on Gufo 0.37.0 (`684b716a`, November 26) the 17 tests and 44 of the
+53 suites (see [below](#functional-api-suites)).
 
 ## ROCm runtime versus llama.cpp
 
@@ -126,8 +127,13 @@ background lines, and in the group whose system prompt is only its label
 and one note the model answers with the label,
 `cache_concurrency_short_shared`, instead of `ALPHA`, in all three runs;
 Gufo 0.35.0's binary gives the same answer to the 0.36.0 suite. The other
-nine fail as before, with the same answers. The lists below are for Gufo
-0.36.0's suites.
+nine fail as before, with the same answers.
+
+Gufo 0.37.0's `cache-concurrency` starts each system prompt with
+`Session label:` and labels the unrelated group by index instead of by code
+word, so the model no longer answers with the label: 0.4.2 passes it and 44
+of 53 suites with the drafter. The other nine fail as on 0.36.0, with the
+same answers. The lists below are for Gufo 0.37.0's suites.
 
 Passed: discovery, openai-count-tokens, messages-count-tokens,
 messages-image-counts, responses, stops, structured, tool-streaming,
@@ -135,18 +141,17 @@ tool-edges, tool-agent, tool-agent-loop, tool-history, messages-tools,
 tool-untyped, tool-choice-cache, tool-parameter-order, tool-type-unions,
 sampling-defaults, sampling-ranges, logprobs, responses-logprobs, batch,
 long-context, state-edges, progress, stream-start, metrics, cache-edits,
-cache-growth, cache-depth, cache-rotation, cache-shared-prefix,
-system-injection, and the cancel, persistence and disk-spacing suites in RAM
-and on disk.
+cache-growth, cache-depth, cache-rotation, cache-concurrency,
+cache-shared-prefix, system-injection, and the cancel, persistence and
+disk-spacing suites in RAM and on disk.
 
-The other ten fail for these reasons (the nine older ones the same in both
-modes; with the projector `tool-schema-edges` passed too):
+The other nine fail for these reasons, the same in both modes (with the
+projector `tool-schema-edges` passed too):
 
 | Suite | Reason |
 | --- | --- |
 | `conversation` | A reply discarded after cancellation re-prefills 22 tokens; the suite allows 16. The template moves the reasoning-effort hint to the last user turn, so the hint and the new turn are recomputed. |
 | `reasoning-separator` | The template replaces earlier reasoning with `<think></think>` unless the request sets `preserve_thinking`, so a replayed turn with reasoning no longer matches the generated tokens. With `preserve_thinking` the generated turn is reused. |
-| `cache-concurrency` | Asked for a code word under a system prompt that is only its label and one note, the model answers with the label (since Gufo 0.36.0's suite, see above). |
 | `tool-native-schemas` | A schema variant changes the prompt by 5 tokens against a tolerance of 4 calibrated on Qwen's tokenizer. |
 | `tools`, `reasoning-budget` | At reasoning effort `high` the model reasons past the suites' output limits (about 450 tokens before a forced tool call against 256), then answers correctly. |
 | `structured-limits` | Under presence, frequency and repeat penalties with `tool_choice: auto`, the model declines to call the tool. |
